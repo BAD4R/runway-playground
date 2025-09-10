@@ -378,7 +378,7 @@ async function onSubmit(e){
   }
 }
 
-// Upload pending Files to proxy to get public URLs (transfer.sh). Do nothing for existing URLs.
+// Convert pending Files to data URLs (base64). Do nothing for existing URLs.
 async function ensurePublicUrls(){
   // Video
   let videoUrl=null;
@@ -405,17 +405,22 @@ async function ensurePublicUrls(){
   };
 }
 
+async function readFileAsDataURL(file){
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+}
+
 async function uploadFiles(files){
-  const fd=new FormData();
-  files.forEach(f=> fd.append("files", f, f.name));
-  const r=await fetch("http://localhost:5100/file/upload", { method:"POST", body: fd });
-  if(!r.ok){
-    const t=await r.text().catch(()=> "");
-    throw new Error(`upload HTTP ${r.status} ${t}`);
+  const urls=[];
+  for(const f of files){
+    const dataUrl = await readFileAsDataURL(f);
+    urls.push(dataUrl);
   }
-  const j=await r.json();
-  if(Array.isArray(j.urls) && j.urls.length===files.length) return j.urls;
-  throw new Error("Некорректный ответ загрузки: "+JSON.stringify(j));
+  return urls;
 }
 
 async function startTask(payload, endpointPath){
