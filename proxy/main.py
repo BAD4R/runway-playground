@@ -9,7 +9,7 @@
 # - OPTIONS handled LOCALLY (204) to avoid upstream 401 on CORS preflight
 # - Verbose logging; Authorization redacted in logs
 
-from flask import Flask, request, Response, jsonify, make_response
+from flask import Flask, request, Response, jsonify, make_response, stream_with_context
 from werkzeug.utils import secure_filename
 import requests
 import logging
@@ -139,6 +139,7 @@ def file_upload():
     return jsonify({"urls": urls})
 
 # ---------- Runway proxy ----------
+@app.route("/api", defaults={"full_path": ""}, methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
 @app.route("/api/<path:full_path>", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
 def proxy(full_path):
     # Handle CORS preflight locally
@@ -176,24 +177,31 @@ def proxy(full_path):
             data=(request.get_data() if method not in ("GET", "HEAD", "DELETE") else None),
             headers=headers,
             timeout=120,
+            stream=True,
         )
     except requests.RequestException as e:
         logger.error("Upstream request error: %s", e)
-        # Build error response with CORS
         resp = jsonify({"error": "proxy_error", "message": str(e)})
         resp.status_code = 502
         return resp
 
-    # Log upstream response
-    log_response(r.status_code, r.headers, r.content or b"")
+    def generate():
+        collected = b""
+        for chunk in r.iter_content(chunk_size=8192):
+            if len(collected) < READ_LOG_BODY_LIMIT:
+                to_take = min(len(chunk), READ_LOG_BODY_LIMIT - len(collected))
+                collected += chunk[:to_take]
+            yield chunk
+        log_response(r.status_code, r.headers, collected)
 
-    # Build response
     resp = Response(
-        response=r.content,
+        stream_with_context(generate()),
         status=r.status_code,
-        headers={"Content-Type": r.headers.get("Content-Type", "application/octet-stream")},
     )
-    # CORS headers added by after_request
+    if r.headers.get("Content-Type"):
+        resp.headers["Content-Type"] = r.headers["Content-Type"]
+    if r.headers.get("Content-Length"):
+        resp.headers["Content-Length"] = r.headers["Content-Length"]
     return resp
 
 if __name__ == "__main__":
