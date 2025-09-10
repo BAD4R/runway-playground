@@ -69,6 +69,8 @@ function setBadge(state,text){ els.statusBadge.className="badge "+(state||""); e
 function toUSD(c){ return (c*0.01).toFixed(2); }
 function parseIntOrNull(v){ const n=parseInt(v,10); return Number.isFinite(n)?n:null; }
 
+function wrapImages(urls){ return urls.map(u => ({ image: u })); }
+
 function extractCreditBalance(j){
   if (!j) return null;
   if (typeof j.creditBalance==="number") return j.creditBalance;
@@ -89,7 +91,7 @@ function extractCreditBalance(j){
 
   const saved=localStorage.getItem("RUNWAY_API_KEY"); if(saved) els.apiKey.value=saved;
   els.saveKeyBtn.addEventListener("click",()=>{ const k=els.apiKey.value.trim(); if(!k){alert("Введите API ключ.");return;} setApiKey(k); alert("Ключ сохранён."); refreshBalance(); });
-  els.refreshBalanceBtn.addEventListener("click", refreshBalance);
+  els.refreshBalanceBtn.addEventListener("click", () => refreshBalance());
 
   els.model.addEventListener("change", handleModelChange); handleModelChange();
   ["change","input"].forEach(evt=>{ els.model.addEventListener(evt,updateEstimate); els.duration.addEventListener(evt,updateEstimate); els.ratio.addEventListener(evt,updateEstimate); });
@@ -149,8 +151,8 @@ function extractCreditBalance(j){
   els.form.addEventListener("submit", onSubmit);
   els.cancelBtn.addEventListener("click", onCancel);
 
-  setInterval(refreshBalance, 60*1000);
-  refreshBalance();
+  setInterval(() => refreshBalance(true), 60*1000);
+  refreshBalance(true);
 })();
 
 function bindDnD(containerId, areaSel, accept, onFiles) {
@@ -303,16 +305,17 @@ function getHeaders(){
   return {"Content-Type":"application/json","Authorization":`Bearer ${key}`,"X-Runway-Version":API_VERSION};
 }
 
-async function refreshBalance(){
+async function refreshBalance(silent=false){
   try{
-    const r=await fetch(`${API_BASE}/organization`,{method:"GET",headers:getHeaders()});
+    const url = `${API_BASE}/organization${silent ? "?no_log=1" : ""}`;
+    const r=await fetch(url,{method:"GET",headers:getHeaders()});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const j=await r.json();
     const bal=extractCreditBalance(j);
     if(typeof bal==="number"){ els.balanceCredits.textContent=String(bal); els.balanceUSD.textContent=toUSD(bal); }
     else{ els.balanceCredits.textContent="неизв."; els.balanceUSD.textContent="—"; }
-    logLine({balance:j});
-  }catch(e){ logLine("Ошибка получения баланса: "+e.message); }
+    if(!silent) logLine({balance:j});
+  }catch(e){ if(!silent) logLine("Ошибка получения баланса: "+e.message); }
 }
 
 async function onSubmit(e){
@@ -322,6 +325,7 @@ async function onSubmit(e){
   els.taskIdWrap.classList.add("hidden");
   els.taskId.textContent="—";
   els.cancelBtn.disabled=true;
+  currentTaskId = null; // сбрасываем предыдущий ID задачи
 
   const model=els.model.value;
   const ratio=els.ratio.value;
@@ -339,7 +343,7 @@ async function onSubmit(e){
       if(!videoUri){ alert("Добавьте URL/файл видео."); return; }
       payload={ model, videoUri, promptText, ratio, duration:5 };
       if(seed!==undefined && Number.isFinite(seed)) payload.seed=seed;
-      if(refUrls.length) payload.referenceImages = refUrls; // plural when multiple
+      if(refUrls.length) payload.referenceImages = wrapImages(refUrls); // plural when multiple
       endpoint="/video_to_video";
     } else if(model==="gen4_turbo"){
       const allImages = [...state.imageUrls, ...imageUrls]; // prefer explicit URL list + newly uploaded
@@ -347,26 +351,29 @@ async function onSubmit(e){
       const duration=parseIntOrNull(els.duration.value)||5;
       // Prefer field promptImages when multiple; keep promptImage for single for backward compat
       payload={ model, promptText, ratio, duration };
-      if(allImages.length===1) payload.promptImage = allImages[0];
-      else payload.promptImages = allImages;
+      if(allImages.length===1) payload.promptImage = wrapImages(allImages)[0];
+      else payload.promptImages = wrapImages(allImages);
       if(seed!==undefined && Number.isFinite(seed)) payload.seed=seed;
-      if(refUrls.length) payload.referenceImages = refUrls;
+      if(refUrls.length) payload.referenceImages = wrapImages(refUrls);
       endpoint="/image_to_video";
     } else if(model==="gen4_image"){
       payload={ model, promptText, ratio, resolution:"720p" };
-      if(refUrls.length) payload.referenceImages = refUrls;
+      if(refUrls.length) payload.referenceImages = wrapImages(refUrls);
       endpoint="/text_to_image";
     } else {
       throw new Error("Неизвестная модель");
     }
 
     logLine({request:{endpoint,payload}});
-    const start=await startTask(payload, endpoint);
+    const start = await startTask(payload, endpoint);
     logLine({start});
     const taskId = start?.id || start?.taskId || start?.task?.id;
-    if(!taskId) throw new Error("Не удалось получить ID задачи из ответа.");
-    els.taskId.textContent=taskId; els.taskIdWrap.classList.remove("hidden"); els.cancelBtn.disabled=false;
-    setBadge("processing","обрабатывается");
+    if (!taskId) throw new Error("Не удалось получить ID задачи из ответа.");
+    currentTaskId = taskId; // сохраняем id задачи для отмены
+    els.taskId.textContent = taskId;
+    els.taskIdWrap.classList.remove("hidden");
+    els.cancelBtn.disabled = false;
+    setBadge("processing", "обрабатывается");
     pollTask(taskId);
   }catch(err){
     setBadge("fail","ошибка");
@@ -374,7 +381,7 @@ async function onSubmit(e){
   }
 }
 
-// Upload pending Files to proxy to get public URLs (transfer.sh). Do nothing for existing URLs.
+// Convert pending Files to data URLs (base64). Do nothing for existing URLs.
 async function ensurePublicUrls(){
   // Video
   let videoUrl=null;
@@ -401,17 +408,22 @@ async function ensurePublicUrls(){
   };
 }
 
+async function readFileAsDataURL(file){
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+}
+
 async function uploadFiles(files){
-  const fd=new FormData();
-  files.forEach(f=> fd.append("files", f, f.name));
-  const r=await fetch("http://localhost:5100/file/upload", { method:"POST", body: fd });
-  if(!r.ok){
-    const t=await r.text().catch(()=> "");
-    throw new Error(`upload HTTP ${r.status} ${t}`);
+  const urls=[];
+  for(const f of files){
+    const dataUrl = await readFileAsDataURL(f);
+    urls.push(dataUrl);
   }
-  const j=await r.json();
-  if(Array.isArray(j.urls) && j.urls.length===files.length) return j.urls;
-  throw new Error("Некорректный ответ загрузки: "+JSON.stringify(j));
+  return urls;
 }
 
 async function startTask(payload, endpointPath){
@@ -422,6 +434,7 @@ async function startTask(payload, endpointPath){
 
 let currentTaskId=null, pollTimer=null;
 async function pollTask(id){
+  currentTaskId = id; // сохраняем текущий ID
   clearInterval(pollTimer);
   pollTimer = setInterval(async ()=>{
     try{
@@ -430,9 +443,18 @@ async function pollTask(id){
       logLine({status:data});
       const status=(data?.status||data?.task?.status||"").toLowerCase();
       if(["succeeded","completed","complete","done"].includes(status)){
-        clearInterval(pollTimer); setBadge("ok","выполнено"); els.cancelBtn.disabled=true; showOutput(data); refreshBalance();
+        clearInterval(pollTimer);
+        currentTaskId = null;
+        setBadge("ok","выполнено");
+        els.cancelBtn.disabled=true;
+        showOutput(data);
+        refreshBalance();
       } else if(["failed","error","cancelled"].includes(status)){
-        clearInterval(pollTimer); setBadge("fail",status); els.cancelBtn.disabled=true; refreshBalance();
+        clearInterval(pollTimer);
+        currentTaskId = null;
+        setBadge("fail",status);
+        els.cancelBtn.disabled=true;
+        refreshBalance();
       }
     }catch(e){ logLine("Ошибка опроса задачи: "+e.message); }
   }, 2500);
@@ -443,7 +465,12 @@ async function onCancel(){
   try{
     const res=await fetch(`${API_BASE}/tasks/${encodeURIComponent(currentTaskId)}`, { method:"DELETE", headers:getHeaders() });
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    setBadge("fail","отменено"); els.cancelBtn.disabled=true; clearInterval(pollTimer); logLine("Задача отменена."); refreshBalance();
+    setBadge("fail","отменено");
+    els.cancelBtn.disabled=true;
+    clearInterval(pollTimer);
+    currentTaskId = null;
+    logLine("Задача отменена.");
+    refreshBalance();
   }catch(e){ logLine("Ошибка отмены: "+e.message); }
 }
 
