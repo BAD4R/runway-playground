@@ -1,6 +1,5 @@
 # proxy/main.py
-# Flask proxy for Runway API with proper CORS preflight handling, verbose logging,
-# and multi-file upload endpoint for transfer.sh.
+# Flask proxy for Runway API with proper CORS preflight handling and verbose logging.
 # Run:  python main.py
 # Listens: http://localhost:5100
 # Proxies: /api/*  -> https://api.dev.runwayml.com/v1/*
@@ -9,8 +8,7 @@
 # - OPTIONS handled LOCALLY (204) to avoid upstream 401 on CORS preflight
 # - Verbose logging; Authorization redacted in logs
 
-from flask import Flask, request, Response, jsonify, make_response
-from werkzeug.utils import secure_filename
+from flask import Flask, request, Response, jsonify, make_response, stream_with_context
 import requests
 import logging
 import sys
@@ -98,59 +96,23 @@ def _build_upstream_url(path: str) -> str:
     path = path.lstrip("/")
     return f"{UPSTREAM}/{path}"
 
-# ---------- File upload (multi) ----------
-@app.route("/file/upload", methods=["POST", "OPTIONS"])
-def file_upload():
-    """
-    Accepts multipart/form-data:
-      - "files": <file>, "files": <file>, ...
-      or single "file": <file>
-    Uploads each file to transfer.sh with PUT /<filename>.
-    Returns: { "urls": ["https://transfer.sh/<random>/<filename>", ...] }
-    """
-    # CORS preflight locally
-    if request.method == "OPTIONS":
-        resp = make_response("", 204)
-        for k, v in cors_headers().items():
-            resp.headers[k] = v
-        return resp
-
-    files = request.files.getlist("files")
-    if not files:
-        single = request.files.get("file")
-        if single:
-            files = [single]
-    if not files:
-        return jsonify({"error": "no_files", "message": "Provide one or multiple 'files' fields"}), 400
-
-    urls = []
-    for f in files:
-        filename = secure_filename(f.filename or "file.bin")
-        try:
-            # transfer.sh supports PUT to /<filename>; response body is the public URL
-            r = requests.put(f"https://transfer.sh/{filename}", data=f.stream, timeout=120)
-            if r.status_code in (200, 201):
-                urls.append(r.text.strip())
-            else:
-                return jsonify({"error": "upload_failed", "status": r.status_code, "body": r.text[:300]}), 502
-        except requests.RequestException as e:
-            return jsonify({"error": "upload_error", "message": str(e)}), 502
-
-    return jsonify({"urls": urls})
-
 # ---------- Runway proxy ----------
+@app.route("/api", defaults={"full_path": ""}, methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
 @app.route("/api/<path:full_path>", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
 def proxy(full_path):
+    skip_log = request.args.get("no_log") == "1" or request.headers.get("X-Proxy-No-Log") == "1"
     # Handle CORS preflight locally
     if request.method == "OPTIONS":
-        logger.info("Handling CORS preflight locally for /api/%s", full_path)
+        if not skip_log:
+            logger.info("Handling CORS preflight locally for /api/%s", full_path)
         resp = make_response("", 204)
         for k, v in cors_headers().items():
             resp.headers[k] = v
         return resp
 
     # Log incoming request
-    log_request(request)
+    if not skip_log:
+        log_request(request)
 
     upstream_url = _build_upstream_url(full_path)
 
@@ -169,36 +131,45 @@ def proxy(full_path):
 
     method = request.method.upper()
     try:
+        params = dict(request.args)
+        params.pop("no_log", None)
         r = requests.request(
             method=method,
             url=upstream_url,
-            params=request.args,
+            params=params,
             data=(request.get_data() if method not in ("GET", "HEAD", "DELETE") else None),
             headers=headers,
             timeout=120,
+            stream=True,
         )
     except requests.RequestException as e:
         logger.error("Upstream request error: %s", e)
-        # Build error response with CORS
         resp = jsonify({"error": "proxy_error", "message": str(e)})
         resp.status_code = 502
         return resp
 
-    # Log upstream response
-    log_response(r.status_code, r.headers, r.content or b"")
+    def generate():
+        collected = b""
+        for chunk in r.iter_content(chunk_size=8192):
+            if len(collected) < READ_LOG_BODY_LIMIT:
+                to_take = min(len(chunk), READ_LOG_BODY_LIMIT - len(collected))
+                collected += chunk[:to_take]
+            yield chunk
+        if not skip_log:
+            log_response(r.status_code, r.headers, collected)
 
-    # Build response
     resp = Response(
-        response=r.content,
+        stream_with_context(generate()),
         status=r.status_code,
-        headers={"Content-Type": r.headers.get("Content-Type", "application/octet-stream")},
     )
-    # CORS headers added by after_request
+    if r.headers.get("Content-Type"):
+        resp.headers["Content-Type"] = r.headers["Content-Type"]
+    if r.headers.get("Content-Length"):
+        resp.headers["Content-Length"] = r.headers["Content-Length"]
     return resp
 
 if __name__ == "__main__":
     logger.info("▶️  Flask proxy listening on http://localhost:5100")
     logger.info("    Forwarding /api/* -> %s/*", UPSTREAM)
-    logger.info("    /file/upload handles multiple files and CORS preflight")
     logger.info("    Client must send Authorization: Bearer <RUNWAY_API_KEY>")
     app.run(host="0.0.0.0", port=5100, debug=False)
