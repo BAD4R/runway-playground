@@ -89,7 +89,7 @@ function extractCreditBalance(j){
 
   const saved=localStorage.getItem("RUNWAY_API_KEY"); if(saved) els.apiKey.value=saved;
   els.saveKeyBtn.addEventListener("click",()=>{ const k=els.apiKey.value.trim(); if(!k){alert("Введите API ключ.");return;} setApiKey(k); alert("Ключ сохранён."); refreshBalance(); });
-  els.refreshBalanceBtn.addEventListener("click", refreshBalance);
+  els.refreshBalanceBtn.addEventListener("click", () => refreshBalance());
 
   els.model.addEventListener("change", handleModelChange); handleModelChange();
   ["change","input"].forEach(evt=>{ els.model.addEventListener(evt,updateEstimate); els.duration.addEventListener(evt,updateEstimate); els.ratio.addEventListener(evt,updateEstimate); });
@@ -149,8 +149,8 @@ function extractCreditBalance(j){
   els.form.addEventListener("submit", onSubmit);
   els.cancelBtn.addEventListener("click", onCancel);
 
-  setInterval(refreshBalance, 60*1000);
-  refreshBalance();
+  setInterval(() => refreshBalance(true), 60*1000);
+  refreshBalance(true);
 })();
 
 function bindDnD(containerId, areaSel, accept, onFiles) {
@@ -303,16 +303,17 @@ function getHeaders(){
   return {"Content-Type":"application/json","Authorization":`Bearer ${key}`,"X-Runway-Version":API_VERSION};
 }
 
-async function refreshBalance(){
+async function refreshBalance(silent=false){
   try{
-    const r=await fetch(`${API_BASE}/organization`,{method:"GET",headers:getHeaders()});
+    const url = `${API_BASE}/organization${silent ? "?no_log=1" : ""}`;
+    const r=await fetch(url,{method:"GET",headers:getHeaders()});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const j=await r.json();
     const bal=extractCreditBalance(j);
     if(typeof bal==="number"){ els.balanceCredits.textContent=String(bal); els.balanceUSD.textContent=toUSD(bal); }
     else{ els.balanceCredits.textContent="неизв."; els.balanceUSD.textContent="—"; }
-    logLine({balance:j});
-  }catch(e){ logLine("Ошибка получения баланса: "+e.message); }
+    if(!silent) logLine({balance:j});
+  }catch(e){ if(!silent) logLine("Ошибка получения баланса: "+e.message); }
 }
 
 async function onSubmit(e){

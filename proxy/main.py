@@ -100,16 +100,19 @@ def _build_upstream_url(path: str) -> str:
 @app.route("/api", defaults={"full_path": ""}, methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
 @app.route("/api/<path:full_path>", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
 def proxy(full_path):
+    skip_log = request.args.get("no_log") == "1" or request.headers.get("X-Proxy-No-Log") == "1"
     # Handle CORS preflight locally
     if request.method == "OPTIONS":
-        logger.info("Handling CORS preflight locally for /api/%s", full_path)
+        if not skip_log:
+            logger.info("Handling CORS preflight locally for /api/%s", full_path)
         resp = make_response("", 204)
         for k, v in cors_headers().items():
             resp.headers[k] = v
         return resp
 
     # Log incoming request
-    log_request(request)
+    if not skip_log:
+        log_request(request)
 
     upstream_url = _build_upstream_url(full_path)
 
@@ -128,10 +131,12 @@ def proxy(full_path):
 
     method = request.method.upper()
     try:
+        params = dict(request.args)
+        params.pop("no_log", None)
         r = requests.request(
             method=method,
             url=upstream_url,
-            params=request.args,
+            params=params,
             data=(request.get_data() if method not in ("GET", "HEAD", "DELETE") else None),
             headers=headers,
             timeout=120,
@@ -150,7 +155,9 @@ def proxy(full_path):
                 to_take = min(len(chunk), READ_LOG_BODY_LIMIT - len(collected))
                 collected += chunk[:to_take]
             yield chunk
-        log_response(r.status_code, r.headers, collected)
+
+        if not skip_log:
+            log_response(r.status_code, r.headers, collected)
 
     resp = Response(
         stream_with_context(generate()),
