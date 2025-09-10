@@ -69,6 +69,16 @@ function setBadge(state,text){ els.statusBadge.className="badge "+(state||""); e
 function toUSD(c){ return (c*0.01).toFixed(2); }
 function parseIntOrNull(v){ const n=parseInt(v,10); return Number.isFinite(n)?n:null; }
 
+// Convert array of raw image/video URLs or data URIs into the shape
+// expected by Runway API reference images (each object needs a `uri`)
+function wrapImages(urls){ return urls.map(u => ({ uri: u })); }
+
+// For image_to_video when multiple prompt images are supplied we need
+// to add a required `position` field for each image (first/last).
+function wrapPromptImages(urls){
+  return urls.map((u, i) => ({ uri: u, position: i === 0 ? "first" : "last" }));
+}
+
 function extractCreditBalance(j){
   if (!j) return null;
   if (typeof j.creditBalance==="number") return j.creditBalance;
@@ -339,24 +349,24 @@ async function onSubmit(e){
     if(model==="gen4_aleph"){
       const videoUri = els.videoUrl.value.trim() || videoUrl;
       if(!videoUri){ alert("Добавьте URL/файл видео."); return; }
-      payload={ model, videoUri, promptText, ratio, duration:5 };
+      payload={ model, videoUri, promptText, ratio };
       if(seed!==undefined && Number.isFinite(seed)) payload.seed=seed;
-      if(refUrls.length) payload.referenceImages = refUrls; // plural when multiple
+      if(refUrls.length) payload.references = refUrls.map(u => ({ type:"image", uri:u }));
       endpoint="/video_to_video";
     } else if(model==="gen4_turbo"){
-      const allImages = [...state.imageUrls, ...imageUrls]; // prefer explicit URL list + newly uploaded
+      const allImages = [...state.imageUrls, ...imageUrls];
       if(!allImages.length){ alert("Добавьте URL/файлы изображений для Turbo."); return; }
       const duration=parseIntOrNull(els.duration.value)||5;
-      // Prefer field promptImages when multiple; keep promptImage for single for backward compat
       payload={ model, promptText, ratio, duration };
       if(allImages.length===1) payload.promptImage = allImages[0];
-      else payload.promptImages = allImages;
+      else payload.promptImages = wrapPromptImages(allImages);
       if(seed!==undefined && Number.isFinite(seed)) payload.seed=seed;
-      if(refUrls.length) payload.referenceImages = refUrls;
+      if(refUrls.length) payload.referenceImages = wrapImages(refUrls);
       endpoint="/image_to_video";
     } else if(model==="gen4_image"){
-      payload={ model, promptText, ratio, resolution:"720p" };
-      if(refUrls.length) payload.referenceImages = refUrls;
+      payload={ model, promptText, ratio };
+      if(refUrls.length) payload.referenceImages = wrapImages(refUrls);
+      if(seed!==undefined && Number.isFinite(seed)) payload.seed=seed;
       endpoint="/text_to_image";
     } else {
       throw new Error("Неизвестная модель");

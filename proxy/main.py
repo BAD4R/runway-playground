@@ -155,7 +155,6 @@ def proxy(full_path):
                 to_take = min(len(chunk), READ_LOG_BODY_LIMIT - len(collected))
                 collected += chunk[:to_take]
             yield chunk
-
         if not skip_log:
             log_response(r.status_code, r.headers, collected)
 
