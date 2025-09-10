@@ -69,6 +69,8 @@ function setBadge(state,text){ els.statusBadge.className="badge "+(state||""); e
 function toUSD(c){ return (c*0.01).toFixed(2); }
 function parseIntOrNull(v){ const n=parseInt(v,10); return Number.isFinite(n)?n:null; }
 
+function wrapImages(urls){ return urls.map(u => ({ image: u })); }
+
 function extractCreditBalance(j){
   if (!j) return null;
   if (typeof j.creditBalance==="number") return j.creditBalance;
@@ -341,7 +343,7 @@ async function onSubmit(e){
       if(!videoUri){ alert("Добавьте URL/файл видео."); return; }
       payload={ model, videoUri, promptText, ratio, duration:5 };
       if(seed!==undefined && Number.isFinite(seed)) payload.seed=seed;
-      if(refUrls.length) payload.referenceImages = refUrls; // plural when multiple
+      if(refUrls.length) payload.referenceImages = wrapImages(refUrls); // plural when multiple
       endpoint="/video_to_video";
     } else if(model==="gen4_turbo"){
       const allImages = [...state.imageUrls, ...imageUrls]; // prefer explicit URL list + newly uploaded
@@ -349,14 +351,14 @@ async function onSubmit(e){
       const duration=parseIntOrNull(els.duration.value)||5;
       // Prefer field promptImages when multiple; keep promptImage for single for backward compat
       payload={ model, promptText, ratio, duration };
-      if(allImages.length===1) payload.promptImage = allImages[0];
-      else payload.promptImages = allImages;
+      if(allImages.length===1) payload.promptImage = wrapImages(allImages)[0];
+      else payload.promptImages = wrapImages(allImages);
       if(seed!==undefined && Number.isFinite(seed)) payload.seed=seed;
-      if(refUrls.length) payload.referenceImages = refUrls;
+      if(refUrls.length) payload.referenceImages = wrapImages(refUrls);
       endpoint="/image_to_video";
     } else if(model==="gen4_image"){
       payload={ model, promptText, ratio, resolution:"720p" };
-      if(refUrls.length) payload.referenceImages = refUrls;
+      if(refUrls.length) payload.referenceImages = wrapImages(refUrls);
       endpoint="/text_to_image";
     } else {
       throw new Error("Неизвестная модель");
