@@ -322,6 +322,7 @@ async function onSubmit(e){
   els.taskIdWrap.classList.add("hidden");
   els.taskId.textContent="—";
   els.cancelBtn.disabled=true;
+  currentTaskId = null; // сбрасываем предыдущий ID задачи
 
   const model=els.model.value;
   const ratio=els.ratio.value;
@@ -361,12 +362,15 @@ async function onSubmit(e){
     }
 
     logLine({request:{endpoint,payload}});
-    const start=await startTask(payload, endpoint);
+    const start = await startTask(payload, endpoint);
     logLine({start});
     const taskId = start?.id || start?.taskId || start?.task?.id;
-    if(!taskId) throw new Error("Не удалось получить ID задачи из ответа.");
-    els.taskId.textContent=taskId; els.taskIdWrap.classList.remove("hidden"); els.cancelBtn.disabled=false;
-    setBadge("processing","обрабатывается");
+    if (!taskId) throw new Error("Не удалось получить ID задачи из ответа.");
+    currentTaskId = taskId; // сохраняем id задачи для отмены
+    els.taskId.textContent = taskId;
+    els.taskIdWrap.classList.remove("hidden");
+    els.cancelBtn.disabled = false;
+    setBadge("processing", "обрабатывается");
     pollTask(taskId);
   }catch(err){
     setBadge("fail","ошибка");
@@ -422,6 +426,7 @@ async function startTask(payload, endpointPath){
 
 let currentTaskId=null, pollTimer=null;
 async function pollTask(id){
+  currentTaskId = id; // сохраняем текущий ID
   clearInterval(pollTimer);
   pollTimer = setInterval(async ()=>{
     try{
@@ -430,9 +435,18 @@ async function pollTask(id){
       logLine({status:data});
       const status=(data?.status||data?.task?.status||"").toLowerCase();
       if(["succeeded","completed","complete","done"].includes(status)){
-        clearInterval(pollTimer); setBadge("ok","выполнено"); els.cancelBtn.disabled=true; showOutput(data); refreshBalance();
+        clearInterval(pollTimer);
+        currentTaskId = null;
+        setBadge("ok","выполнено");
+        els.cancelBtn.disabled=true;
+        showOutput(data);
+        refreshBalance();
       } else if(["failed","error","cancelled"].includes(status)){
-        clearInterval(pollTimer); setBadge("fail",status); els.cancelBtn.disabled=true; refreshBalance();
+        clearInterval(pollTimer);
+        currentTaskId = null;
+        setBadge("fail",status);
+        els.cancelBtn.disabled=true;
+        refreshBalance();
       }
     }catch(e){ logLine("Ошибка опроса задачи: "+e.message); }
   }, 2500);
@@ -443,7 +457,12 @@ async function onCancel(){
   try{
     const res=await fetch(`${API_BASE}/tasks/${encodeURIComponent(currentTaskId)}`, { method:"DELETE", headers:getHeaders() });
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    setBadge("fail","отменено"); els.cancelBtn.disabled=true; clearInterval(pollTimer); logLine("Задача отменена."); refreshBalance();
+    setBadge("fail","отменено");
+    els.cancelBtn.disabled=true;
+    clearInterval(pollTimer);
+    currentTaskId = null;
+    logLine("Задача отменена.");
+    refreshBalance();
   }catch(e){ logLine("Ошибка отмены: "+e.message); }
 }
 
