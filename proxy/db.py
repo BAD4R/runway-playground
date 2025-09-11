@@ -2,7 +2,9 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime
 
-DB_PATH = Path(__file__).with_name("chat.db")
+# Place the SQLite file at the repository root so it's easy to find when running
+# locally. The file will be created automatically on first run.
+DB_PATH = Path(__file__).resolve().parent.parent / "chat.db"
 
 
 def get_conn():

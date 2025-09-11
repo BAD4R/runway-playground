@@ -20,7 +20,8 @@ html,body{
 .sidebar-top{padding:12px;border-bottom:1px solid var(--sidebar-border);}
 
 .new-chat{width:100%;display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--sidebar-border);border-radius:8px;padding:8px 12px;font-size:14px;cursor:pointer;}
-.new-chat img{width:16px;height:16px;}
+.new-chat img{width:16px;height:16px;filter:brightness(0) invert(.2);}
+
 
 .chat-list{flex:1;overflow-y:auto;list-style:none;margin:0;padding:8px;}
 .chat-list li{position:relative;display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;cursor:pointer;}
@@ -29,10 +30,12 @@ html,body{
 
 .menu-btn{background:none;border:none;opacity:0;padding:4px;cursor:pointer;}
 .chat-list li:hover .menu-btn{opacity:1;}
-.menu-btn img{width:16px;height:16px;}
+.menu-btn img{width:16px;height:16px;filter:brightness(0) invert(.2);}
 
 .chat-menu{position:absolute;right:0;top:28px;background:#fff;border:1px solid var(--sidebar-border);border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1);display:flex;flex-direction:column;z-index:10;}
 .chat-menu button{background:none;border:none;padding:8px 12px;text-align:left;display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;}
+.chat-menu button img{width:16px;height:16px;filter:brightness(0) invert(.2);}
+
 .chat-menu button:hover{background:#f7f7f8;}
 .chat-menu .danger{color:#c00;}
 
@@ -59,9 +62,10 @@ html,body{
 .prompt-box textarea{flex:1;border:none;outline:none;resize:none;font-family:inherit;font-size:14px;padding:6px 0;background:transparent;}
 
 .icon-btn{background:none;border:none;cursor:pointer;padding:4px;display:flex;align-items:center;}
-.icon-btn img{width:20px;height:20px;}
+.icon-btn img{width:20px;height:20px;filter:brightness(0) invert(.2);}
 
-.send-btn{background:var(--accent);border:none;border-radius:8px;padding:8px;cursor:pointer;display:flex;align-items:center;}
+.send-btn{background:var(--accent);border:none;border-radius:50%;padding:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+
 .send-btn img{width:20px;height:20px;filter:invert(1);}
 
 .estimate{font-size:12px;color:#555;}
@@ -69,3 +73,8 @@ html,body{
 .linklike{background:none;border:none;color:#06c;cursor:pointer;padding:0;}
 
 .hidden{display:none;}
+
+/* Attachment preview */
+.attach-preview{display:flex;gap:4px;margin-left:4px;}
+.attach-preview img{width:32px;height:32px;object-fit:cover;border-radius:4px;}
+

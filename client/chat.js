@@ -8,28 +8,48 @@ const messagesEl = document.getElementById('messages');
 const promptInput = document.getElementById('promptInput');
 const sendBtn = document.getElementById('sendBtn');
 const attachBtn = document.getElementById('attachBtn');
+const ratioBtn = document.getElementById('ratioBtn');
+const durationBtn = document.getElementById('durationBtn');
 const fileInput = document.getElementById('fileInput');
 const apiKeyInput = document.getElementById('apiKey');
 const saveKeyBtn = document.getElementById('saveKeyBtn');
 const balanceEl = document.getElementById('balanceCredits');
 const refreshBalanceBtn = document.getElementById('refreshBalanceBtn');
+const attachPreview = document.getElementById('attachPreview');
+
 
 let chats = [];
 let activeChat = null;
 let currentFiles = [];
+let currentRatio = null;
+let currentDuration = null;
 
 const MODEL_INFO = {
   gen4_image: {endpoint:'text_to_image', ratios:['1920:1080','1080:1920','1024:1024','1360:768','1080:1080','1168:880','1440:1080','1080:1440','1808:768','2112:912','1280:720','720:1280','720:720','960:720','720:960','1680:720']},
-  gen4_image_turbo: {endpoint:'text_to_image'},
-  gen4_turbo: {endpoint:'image_to_video'},
-  gen4_aleph: {endpoint:'video_to_video'},
+  gen4_image_turbo: {endpoint:'text_to_image', ratios:['1280:720','720:1280']},
+  gen4_turbo: {endpoint:'image_to_video', ratios:['1280:720','720:1280','1104:832','832:1104','960:960','1584:672'], durations:[5,10]},
+  gen4_aleph: {endpoint:'video_to_video', ratios:['1280:720','720:1280','1104:832','960:960','832:1104','1584:672','848:480','640:480'], durations:[5]},
   upscale_v1: {endpoint:'video_upscale'},
-  act_two: {endpoint:'character_performance'},
-  veo3: {endpoint:'image_to_video'}
+  act_two: {endpoint:'character_performance', ratios:['1280:720','720:1280','960:960','1104:832','832:1104','1584:672']},
+  veo3: {endpoint:'image_to_video', ratios:['1280:720','720:1280'], durations:[8]}
 };
 
+function populateModelSelect(){
+  modelSelect.innerHTML='';
+  Object.keys(MODEL_INFO).forEach(m=>{
+    const opt=document.createElement('option');
+    opt.value=m; opt.textContent=m;
+    modelSelect.appendChild(opt);
+  });
+}
+
 async function loadChats(){
-  chats = await api.listChats();
+  try{
+    chats = await api.listChats();
+  }catch(e){
+    console.error('Failed to load chats', e);
+    chats = [];
+  }
   renderChatList();
   if(chats.length===0){
     const c = await api.createChat('Новый чат');
@@ -65,6 +85,9 @@ async function selectChat(id){
   promptInput.value = chat.state.prompt||'';
   modelSelect.value = chat.state.model||'gen4_image';
   currentFiles = chat.state.files||[];
+  currentRatio = chat.state.ratio || null;
+  currentDuration = chat.state.duration || null;
+  renderAttachPreview();
   const msgs=await api.listMessages(id);
   renderMessages(msgs);
 }
@@ -120,6 +143,15 @@ function renderMessages(msgs){
   messagesEl.scrollTop=messagesEl.scrollHeight;
 }
 
+function renderAttachPreview(){
+  attachPreview.innerHTML='';
+  currentFiles.forEach(f=>{
+    const img=document.createElement('img');
+    img.src=f;
+    attachPreview.appendChild(img);
+  });
+}
+
 async function handleSend(){
   const apiKey = getApiKey();
   if(!apiKey){ alert('Введите API ключ'); return; }
@@ -143,7 +175,9 @@ async function handleSend(){
     messagesEl.appendChild(createMessageEl(errMsg));
   }
   currentFiles=[]; promptInput.value='';
-  await api.updateChat(activeChat,{state:{model,prompt:'',files:[]}});
+  renderAttachPreview();
+  await api.updateChat(activeChat,{state:{model,prompt:'',files:[],ratio:currentRatio,duration:currentDuration}});
+
 }
 
 function createMessageEl(m){
@@ -166,15 +200,16 @@ async function buildPayload(model, prompt, files){
   const info = MODEL_INFO[model];
   switch(info.endpoint){
     case 'text_to_image':
-      return {model, promptText:prompt, ratio:'1360:768'};
+      return {model, promptText:prompt, ratio: currentRatio || info.ratios?.[0] || '1280:720', referenceImages: files.map(f=>({uri:f}))};
     case 'image_to_video':
-      return {model, promptText:prompt, ratio:'1280:720', promptImage: files[0]};
+      return {model, promptText:prompt, ratio: currentRatio || info.ratios?.[0] || '1280:720', duration: currentDuration || info.durations?.[0], promptImage: files[0]};
     case 'video_to_video':
-      return {model, promptText:prompt, ratio:'1280:720', videoUri: files[0]};
+      return {model, promptText:prompt, ratio: currentRatio || info.ratios?.[0] || '1280:720', duration: currentDuration || info.durations?.[0], videoUri: files[0]};
     case 'video_upscale':
       return {model, videoUri: files[0]};
     case 'character_performance':
-      return {model, ratio:'1280:720', character:{type:'image', uri:files[0]}, reference:{type:'video', uri:files[1]||files[0]}};
+      return {model, ratio: currentRatio || info.ratios?.[0] || '1280:720', character:{type:'image', uri:files[0]}, reference:{type:'video', uri:files[1]||files[0]}};
+
     default:
       return {model, promptText:prompt};
   }
@@ -185,7 +220,8 @@ function handleFileInput(e){
   files.forEach(f=>{
     const reader = new FileReader();
     reader.onload = () => {
-      currentFiles.push(reader.result); updateChatState();
+      currentFiles.push(reader.result); updateChatState(); renderAttachPreview();
+
     };
     reader.readAsDataURL(f);
   });
@@ -195,23 +231,43 @@ function handleFileInput(e){
 function updateChatState(){
   const model=modelSelect.value;
   const prompt=promptInput.value;
-  api.updateChat(activeChat,{state:{model,prompt,files:currentFiles}});
+  api.updateChat(activeChat,{state:{model,prompt,files:currentFiles,ratio:currentRatio,duration:currentDuration}});
+}
+
+async function refreshBalance(silent=false){
+  const key=getApiKey();
+  if(!key) return;
+  const j=await api.fetchBalance(key, silent);
+  if(j && typeof j.creditBalance==='number') balanceEl.textContent=j.creditBalance;
 }
 
 export function init(){
+  populateModelSelect();
   apiKeyInput.value = getApiKey();
-  saveKeyBtn.addEventListener('click',()=>{ setApiKey(apiKeyInput.value); });
+  if(apiKeyInput.value) refreshBalance(true);
+  saveKeyBtn.addEventListener('click',()=>{ setApiKey(apiKeyInput.value.trim()); refreshBalance(); });
   newChatBtn.addEventListener('click', async ()=>{ const c=await api.createChat('Новый чат'); chats.unshift(c); renderChatList(); selectChat(c.id); });
   sendBtn.addEventListener('click', handleSend);
   promptInput.addEventListener('input', updateChatState);
-  modelSelect.addEventListener('change', updateChatState);
+  modelSelect.addEventListener('change', ()=>{ currentRatio=null; currentDuration=null; updateChatState(); });
   attachBtn.addEventListener('click',()=>fileInput.click());
   fileInput.addEventListener('change', handleFileInput);
-  refreshBalanceBtn.addEventListener('click', async()=>{
-    const key=getApiKey(); if(!key) return;
-    const j=await api.fetchBalance(key);
-    if(j && typeof j.creditBalance==='number') balanceEl.textContent=j.creditBalance;
+  ratioBtn.addEventListener('click',()=>{
+    const info=MODEL_INFO[modelSelect.value];
+    const opts=info.ratios||[];
+    if(opts.length===0) return;
+    const r=prompt('Соотношение сторон: '+opts.join(', '), currentRatio||opts[0]);
+    if(r){ currentRatio=r; updateChatState(); }
   });
+  durationBtn.addEventListener('click',()=>{
+    const info=MODEL_INFO[modelSelect.value];
+    const opts=info.durations||[];
+    if(opts.length===0) return;
+    const d=prompt('Длительность (сек): '+opts.join(', '), currentDuration||opts[0]);
+    if(d){ currentDuration=parseInt(d,10); updateChatState(); }
+  });
+  refreshBalanceBtn.addEventListener('click', ()=>refreshBalance());
+  setInterval(()=>refreshBalance(true),60000);
   loadChats();
 }
 
