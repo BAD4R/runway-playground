@@ -62,7 +62,17 @@ const els = {
 
 function getApiKey(){ return els.apiKey.value.trim() || localStorage.getItem("RUNWAY_API_KEY") || ""; }
 function setApiKey(k){ localStorage.setItem("RUNWAY_API_KEY", k); }
-function logLine(obj){ const t=new Date().toLocaleTimeString(); let s=`[${t}] `; s+= typeof obj==="string"?obj:JSON.stringify(obj,null,2); els.log.textContent+=s+"\\n"; els.log.scrollTop=els.log.scrollHeight; }
+function logLine(obj){
+  const t = new Date().toLocaleTimeString();
+  let s = `[${t}] `;
+  s += typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+  if (els.log) {
+    els.log.textContent += s + "\n";
+    els.log.scrollTop = els.log.scrollHeight;
+  } else {
+    console.log(s);
+  }
+}
 function setBadge(state,text){ els.statusBadge.className="badge "+(state||""); els.statusBadge.textContent=text; }
 function toUSD(c){ return (c*0.01).toFixed(2); }
 function parseIntOrNull(v){ const n=parseInt(v,10); return Number.isFinite(n)?n:null; }
@@ -86,8 +96,23 @@ function extractCreditBalance(j){
   });
 
   const saved=localStorage.getItem("RUNWAY_API_KEY"); if(saved) els.apiKey.value=saved;
-  els.saveKeyBtn.addEventListener("click",()=>{ const k=els.apiKey.value.trim(); if(!k){alert("Введите API ключ.");return;} setApiKey(k); alert("Ключ сохранён."); refreshBalance(); });
-  els.refreshBalanceBtn.addEventListener("click", refreshBalance);
+  if (els.saveKeyBtn) {
+    els.saveKeyBtn.addEventListener("click",()=>{
+      const k=els.apiKey.value.trim();
+      if(!k){alert("Введите API ключ.");return;}
+      setApiKey(k);
+      alert("Ключ сохранён.");
+      refreshBalance();
+    });
+  }
+  if (els.refreshBalanceBtn) {
+    els.refreshBalanceBtn.addEventListener("click", refreshBalance);
+  }
+
+  setInterval(refreshBalance, 60*1000);
+  refreshBalance();
+
+  if(!els.form) return;
 
   els.model.addEventListener("change", handleModelChange); handleModelChange();
   ["change","input"].forEach(evt=>{ els.model.addEventListener(evt,updateEstimate); els.duration.addEventListener(evt,updateEstimate); els.ratio.addEventListener(evt,updateEstimate); });
@@ -146,9 +171,6 @@ function extractCreditBalance(j){
 
   els.form.addEventListener("submit", onSubmit);
   els.cancelBtn.addEventListener("click", onCancel);
-
-  setInterval(refreshBalance, 60*1000);
-  refreshBalance();
 })();
 
 function bindDnD(containerId, areaSel, accept, onFiles) {
@@ -307,8 +329,8 @@ async function refreshBalance(){
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const j=await r.json();
     const bal=extractCreditBalance(j);
-    if(typeof bal==="number"){ els.balanceCredits.textContent=String(bal); els.balanceUSD.textContent=toUSD(bal); }
-    else{ els.balanceCredits.textContent="неизв."; els.balanceUSD.textContent="—"; }
+    if(typeof bal==="number"){ if(els.balanceCredits) els.balanceCredits.textContent=String(bal); if(els.balanceUSD) els.balanceUSD.textContent=toUSD(bal); }
+    else{ if(els.balanceCredits) els.balanceCredits.textContent="неизв."; if(els.balanceUSD) els.balanceUSD.textContent="—"; }
     logLine({balance:j});
   }catch(e){ logLine("Ошибка получения баланса: "+e.message); }
 }
