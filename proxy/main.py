@@ -8,7 +8,15 @@
 # - OPTIONS handled LOCALLY (204) to avoid upstream 401 on CORS preflight
 # - Verbose logging; Authorization redacted in logs
 
-from flask import Flask, request, Response, jsonify, make_response, send_from_directory
+from flask import (
+    Flask,
+    request,
+    Response,
+    jsonify,
+    make_response,
+    send_from_directory,
+    stream_with_context,
+)
 from werkzeug.utils import secure_filename
 
 import requests
@@ -23,6 +31,11 @@ READ_LOG_BODY_LIMIT = 4096  # bytes
 
 app = Flask(__name__)
 CLIENT_DIR = Path(__file__).resolve().parent.parent / "client"
+
+# Register local chat storage routes
+from chat_routes import bp as chats_bp
+
+app.register_blueprint(chats_bp)
 
 # ---------- Logging ----------
 logger = logging.getLogger("runway_proxy")
