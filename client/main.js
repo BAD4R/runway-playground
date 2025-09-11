@@ -1,5 +1,6 @@
-import { init, hidePopups } from './chat.js';
+import { init } from './chat.js';
 import { initHeader } from './header.js';
+import { hidePopups } from './ui.js';
 
 console.log('main.js loaded, initializing');
 initHeader();

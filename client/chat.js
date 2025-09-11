@@ -1,6 +1,6 @@
 import * as api from './api.js';
 import { getApiKey, setApiKey } from './state.js';
-import { positionPopup } from './ui.js';
+import { positionPopup, hidePopups, togglePopup } from './ui.js';
 
 const log = (...args) => console.log('[chat]', ...args);
 
@@ -15,10 +15,17 @@ let currentModel = 'gen4_image';
 let currentFiles = {};
 let currentRatio = null;
 let currentDuration = null;
-let chatColor = COLORS[0];
 
 const COLORS=['#d946ef','#6366f1','#0ea5e9','#22c55e','#f97316'];
+let chatColor = COLORS[0];
 function randomColor(){return COLORS[Math.floor(Math.random()*COLORS.length)];}
+
+function withAlpha(hex, alpha){
+  const r=parseInt(hex.slice(1,3),16);
+  const g=parseInt(hex.slice(3,5),16);
+  const b=parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
 
 const MODEL_INFO = {
   gen4_image: {
@@ -201,13 +208,6 @@ function updateModelDesc(){
   if(el) el.textContent=MODEL_INFO[currentModel].desc;
 }
 
-export function hidePopups(){
-  document.querySelectorAll('.popup').forEach(p=>{
-    if(p.classList.contains('static')) p.classList.add('hidden');
-    else p.remove();
-  });
-}
-
 function renderChatList(){
   chatListEl.innerHTML='';
   chats.forEach(c=>{
@@ -283,6 +283,7 @@ async function selectChat(id){
   currentDuration=chat.state.duration||null;
   chatColor=chat.state.color||randomColor();
   document.documentElement.style.setProperty('--accent', chatColor);
+  document.documentElement.style.setProperty('--accent-bg', withAlpha(chatColor,0.15));
   if(!chat.state.color){ chat.state.color=chatColor; await api.updateChat(id,{state:chat.state}); }
   renderAttachMenu();
   renderAttachPreview();
@@ -452,26 +453,19 @@ export function init(){
     c.state={color};
     chatColor=color;
     document.documentElement.style.setProperty('--accent', color);
+    document.documentElement.style.setProperty('--accent-bg', withAlpha(color,0.15));
     chats.unshift(c);
     renderChatList();
     selectChat(c.id);
   });
   modelBtn.addEventListener('click',e=>{
     e.stopPropagation();
-    if(modelMenu.classList.contains('hidden')){
-      hidePopups();
-      modelMenu.classList.remove('hidden');
-      positionPopup(modelBtn, modelMenu);
-    }else{
-      modelMenu.classList.add('hidden');
-    }
+    togglePopup(modelBtn, modelMenu);
   });
   attachBtn.addEventListener('click',e=>{
     e.stopPropagation();
-    hidePopups();
     renderAttachMenu();
-    attachMenu.classList.remove('hidden');
-    positionPopup(attachBtn, attachMenu);
+    togglePopup(attachBtn, attachMenu);
   });
   hiddenFile.addEventListener('change',e=>{const slot=hiddenFile.dataset.slot;const idx=parseInt(hiddenFile.dataset.index,10)||0;handleFiles(slot,idx,e.target.files);hiddenFile.value='';});
   ratioBtn.addEventListener('click',e=>{e.stopPropagation();showRatioMenu();});
@@ -484,23 +478,21 @@ export function init(){
 }
 
 function showRatioMenu(){
-  hidePopups();
   const info=MODEL_INFO[currentModel];
   const opts=info.ratios||[]; if(opts.length===0) return;
   const menu=document.createElement('div');
-  menu.className='popup dynamic';
+  menu.className='popup dynamic hidden';
   opts.forEach(r=>{const b=document.createElement('button');b.textContent=r;b.addEventListener('click',()=>{currentRatio=r;updateChatState();updateCost();hidePopups();});menu.appendChild(b);});
   document.body.appendChild(menu);
-  positionPopup(ratioBtn, menu);
+  togglePopup(ratioBtn, menu);
 }
 
 function showDurationMenu(){
-  hidePopups();
   const info=MODEL_INFO[currentModel];
   const opts=info.durations||[]; if(opts.length===0) return;
   const menu=document.createElement('div');
-  menu.className='popup dynamic';
+  menu.className='popup dynamic hidden';
   opts.forEach(d=>{const b=document.createElement('button');b.textContent=d+' сек';b.addEventListener('click',()=>{currentDuration=d;updateChatState();updateCost();hidePopups();});menu.appendChild(b);});
   document.body.appendChild(menu);
-  positionPopup(durationBtn, menu);
+  togglePopup(durationBtn, menu);
 }

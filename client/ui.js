@@ -15,3 +15,20 @@ export function positionPopup(anchor, popup){
   popup.style.left = left + 'px';
   popup.style.top = top + 'px';
 }
+
+export function hidePopups(){
+  document.querySelectorAll('.popup').forEach(p=>{
+    if(p.classList.contains('static')) p.classList.add('hidden');
+    else p.remove();
+  });
+}
+
+export function togglePopup(anchor, popup){
+  if(popup.classList.contains('hidden')){
+    hidePopups();
+    positionPopup(anchor, popup);
+  }else{
+    if(popup.classList.contains('static')) popup.classList.add('hidden');
+    else popup.remove();
+  }
+}

@@ -1,4 +1,5 @@
-import { positionPopup } from './ui.js';
+import { togglePopup } from './ui.js';
+
 
 export function initHeader(){
   const switchBtn = document.getElementById('serviceSwitch');
@@ -6,10 +7,6 @@ export function initHeader(){
   if(!switchBtn || !menu) return;
   switchBtn.addEventListener('click', e=>{
     e.stopPropagation();
-    menu.classList.toggle('hidden');
-    if(!menu.classList.contains('hidden')) positionPopup(switchBtn, menu);
-  });
-  document.addEventListener('click', e=>{
-    if(!e.target.closest('#serviceMenu')) menu.classList.add('hidden');
+    togglePopup(switchBtn, menu);
   });
 }
