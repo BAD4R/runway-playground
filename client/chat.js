@@ -1,22 +1,10 @@
 import * as api from './api.js';
-import {getApiKey,setApiKey} from './state.js';
+import { getApiKey, setApiKey } from './state.js';
 
-const modelSelect = document.getElementById('modelSelect');
-const chatListEl = document.getElementById('chatList');
-const newChatBtn = document.getElementById('newChatBtn');
-const messagesEl = document.getElementById('messages');
-const promptInput = document.getElementById('promptInput');
-const sendBtn = document.getElementById('sendBtn');
-const attachBtn = document.getElementById('attachBtn');
-const ratioBtn = document.getElementById('ratioBtn');
-const durationBtn = document.getElementById('durationBtn');
-const fileInput = document.getElementById('fileInput');
-const apiKeyInput = document.getElementById('apiKey');
-const saveKeyBtn = document.getElementById('saveKeyBtn');
-const balanceEl = document.getElementById('balanceCredits');
-const refreshBalanceBtn = document.getElementById('refreshBalanceBtn');
-const attachPreview = document.getElementById('attachPreview');
-
+// DOM nodes are resolved during init so that missing elements do not break script execution
+let modelSelect, chatListEl, newChatBtn, messagesEl, promptInput,
+    sendBtn, attachBtn, ratioBtn, durationBtn, fileInput,
+    apiKeyInput, saveKeyBtn, balanceEl, refreshBalanceBtn, attachPreview;
 
 let chats = [];
 let activeChat = null;
@@ -28,7 +16,8 @@ const MODEL_INFO = {
   gen4_image: {endpoint:'text_to_image', ratios:['1920:1080','1080:1920','1024:1024','1360:768','1080:1080','1168:880','1440:1080','1080:1440','1808:768','2112:912','1280:720','720:1280','720:720','960:720','720:960','1680:720']},
   gen4_image_turbo: {endpoint:'text_to_image', ratios:['1280:720','720:1280']},
   gen4_turbo: {endpoint:'image_to_video', ratios:['1280:720','720:1280','1104:832','832:1104','960:960','1584:672'], durations:[5,10]},
-  gen4_aleph: {endpoint:'video_to_video', ratios:['1280:720','720:1280','1104:832','960:960','832:1104','1584:672','848:480','640:480'], durations:[5]},
+  // gen4_aleph does not expose duration, only ratio
+  gen4_aleph: {endpoint:'video_to_video', ratios:['1280:720','720:1280','1104:832','960:960','832:1104','1584:672','848:480','640:480']},
   upscale_v1: {endpoint:'video_upscale'},
   act_two: {endpoint:'character_performance', ratios:['1280:720','720:1280','960:960','1104:832','832:1104','1584:672']},
   veo3: {endpoint:'image_to_video', ratios:['1280:720','720:1280'], durations:[8]}
@@ -71,7 +60,6 @@ function renderChatList(){
     menuBtn.innerHTML='<img src="./icons/ellipsis.svg" alt="menu" />';
     li.appendChild(menuBtn);
     menuBtn.addEventListener('click',e=>{e.stopPropagation();showChatMenu(c.id, li);});
-
     if(activeChat===c.id) li.classList.add('active');
     li.addEventListener('click',()=>selectChat(c.id));
     chatListEl.appendChild(li);
@@ -155,6 +143,8 @@ function renderAttachPreview(){
 async function handleSend(){
   const apiKey = getApiKey();
   if(!apiKey){ alert('Введите API ключ'); return; }
+  if(!activeChat){ alert('Нет активного чата'); return; }
+
   const prompt = promptInput.value.trim();
   if(!prompt && currentFiles.length===0) return;
   const model = modelSelect.value;
@@ -177,7 +167,6 @@ async function handleSend(){
   currentFiles=[]; promptInput.value='';
   renderAttachPreview();
   await api.updateChat(activeChat,{state:{model,prompt:'',files:[],ratio:currentRatio,duration:currentDuration}});
-
 }
 
 function createMessageEl(m){
@@ -204,12 +193,11 @@ async function buildPayload(model, prompt, files){
     case 'image_to_video':
       return {model, promptText:prompt, ratio: currentRatio || info.ratios?.[0] || '1280:720', duration: currentDuration || info.durations?.[0], promptImage: files[0]};
     case 'video_to_video':
-      return {model, promptText:prompt, ratio: currentRatio || info.ratios?.[0] || '1280:720', duration: currentDuration || info.durations?.[0], videoUri: files[0]};
+      return {model, promptText:prompt, ratio: currentRatio || info.ratios?.[0] || '1280:720', videoUri: files[0], references: files.slice(1).map(f=>({type:'image', uri:f}))};
     case 'video_upscale':
       return {model, videoUri: files[0]};
     case 'character_performance':
       return {model, ratio: currentRatio || info.ratios?.[0] || '1280:720', character:{type:'image', uri:files[0]}, reference:{type:'video', uri:files[1]||files[0]}};
-
     default:
       return {model, promptText:prompt};
   }
@@ -221,7 +209,6 @@ function handleFileInput(e){
     const reader = new FileReader();
     reader.onload = () => {
       currentFiles.push(reader.result); updateChatState(); renderAttachPreview();
-
     };
     reader.readAsDataURL(f);
   });
@@ -229,6 +216,7 @@ function handleFileInput(e){
 }
 
 function updateChatState(){
+  if(!activeChat) return;
   const model=modelSelect.value;
   const prompt=promptInput.value;
   api.updateChat(activeChat,{state:{model,prompt,files:currentFiles,ratio:currentRatio,duration:currentDuration}});
@@ -242,6 +230,28 @@ async function refreshBalance(silent=false){
 }
 
 export function init(){
+  // Resolve DOM nodes dynamically
+  modelSelect = document.getElementById('modelSelect');
+  chatListEl = document.getElementById('chatList');
+  newChatBtn = document.getElementById('newChatBtn');
+  messagesEl = document.getElementById('messages');
+  promptInput = document.getElementById('promptInput');
+  sendBtn = document.getElementById('sendBtn');
+  attachBtn = document.getElementById('attachBtn');
+  ratioBtn = document.getElementById('ratioBtn');
+  durationBtn = document.getElementById('durationBtn');
+  fileInput = document.getElementById('fileInput');
+  apiKeyInput = document.getElementById('apiKey');
+  saveKeyBtn = document.getElementById('saveKeyBtn');
+  balanceEl = document.getElementById('balanceCredits');
+  refreshBalanceBtn = document.getElementById('refreshBalanceBtn');
+  attachPreview = document.getElementById('attachPreview');
+
+  if(!modelSelect||!chatListEl||!newChatBtn||!messagesEl||!promptInput||!sendBtn||!attachBtn||!ratioBtn||!durationBtn||!fileInput||!apiKeyInput||!saveKeyBtn||!balanceEl||!refreshBalanceBtn||!attachPreview){
+    console.error('Missing DOM elements, unable to init chat UI');
+    return;
+  }
+
   populateModelSelect();
   apiKeyInput.value = getApiKey();
   if(apiKeyInput.value) refreshBalance(true);
@@ -270,5 +280,3 @@ export function init(){
   setInterval(()=>refreshBalance(true),60000);
   loadChats();
 }
-
-init();
