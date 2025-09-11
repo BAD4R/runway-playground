@@ -39,7 +39,6 @@ app.register_blueprint(chat_bp)
 def root():
     return app.send_static_file("index.html")
 
-
 # ---------- Logging ----------
 logger = logging.getLogger("runway_proxy")
 logger.setLevel(logging.INFO)
