@@ -144,6 +144,7 @@ async function handleSend(){
   const apiKey = getApiKey();
   if(!apiKey){ alert('Введите API ключ'); return; }
   if(!activeChat){ alert('Нет активного чата'); return; }
+
   const prompt = promptInput.value.trim();
   if(!prompt && currentFiles.length===0) return;
   const model = modelSelect.value;
