@@ -71,6 +71,24 @@ html,body{
 
 .hidden{display:none;}
 
-/* Attachment preview */
+/* popup menus */
+.popup{position:absolute;background:#fff;border:1px solid var(--sidebar-border);border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1);padding:4px;display:flex;flex-direction:column;gap:4px;z-index:100;}
+.popup button{background:none;border:none;padding:8px 12px;text-align:left;display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;}
+.popup button:hover{background:#f7f7f8;}
+
+/* attachment slots */
+.attach-slot{width:120px;height:80px;border:2px dashed var(--sidebar-border);border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;}
+.attach-slot img{width:100%;height:100%;object-fit:cover;}
+.attach-slot button.remove{position:absolute;top:2px;right:2px;background:#fff;border:none;border-radius:50%;width:16px;height:16px;cursor:pointer;}
+.drop-zone{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#999;font-size:24px;cursor:pointer;}
+.drop-zone.dragover{color:var(--accent);}
+
 .attach-preview{display:flex;gap:4px;margin-left:4px;}
+.attach-preview .thumb{position:relative;}
 .attach-preview img{width:32px;height:32px;object-fit:cover;border-radius:4px;}
+.attach-preview .thumb button{position:absolute;top:-4px;right:-4px;border:none;background:#fff;border-radius:50%;width:12px;height:12px;cursor:pointer;}
+
+/* Attachment preview */
+
+/* message attachments */
+.message .attachment{width:120px;height:80px;object-fit:cover;border-radius:6px;margin-top:4px;}

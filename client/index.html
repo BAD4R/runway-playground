@@ -25,12 +25,15 @@
     </aside>
     <main class="main">
       <header class="topbar">
-        <select id="modelSelect"></select>
+        <button id="modelBtn" class="icon-btn model-btn">Модель: <span id="modelLabel"></span></button>
+        <div id="modelMenu" class="popup hidden"></div>
         <div class="balance">Кредиты: <span id="balanceCredits">—</span> <button id="refreshBalanceBtn" class="linklike">⟳</button></div>
       </header>
       <section id="messages" class="messages"></section>
       <footer class="composer">
-        <input id="fileInput" type="file" hidden multiple />
+        <input id="hiddenFile" type="file" hidden />
+        <div id="attachMenu" class="popup hidden"></div>
+
         <div class="prompt-box">
           <button id="attachBtn" class="icon-btn"><img src="./icons/paperclip.svg" alt="attach" /></button>
           <textarea id="promptInput" rows="1" placeholder="Введите промпт..."></textarea>
@@ -41,8 +44,9 @@
         <button id="sendBtn" class="send-btn"><img src="./icons/send.svg" alt="send" /></button>
         <div id="estCost" class="estimate"></div>
       </footer>
-    </main>
-  </div>
+      </main>
+    </div>
+
   <script type="module" src="./main.js"></script>
 </body>
 </html>

@@ -74,3 +74,23 @@ export async function fetchBalance(apiKey, silent=false){
   if (!r.ok) return null;
   return r.json();
 }
+
+export async function getTask(apiKey, id){
+  const r = await fetch(`${BASE}/api/tasks/${id}`, {
+    headers:{
+      'Authorization': `Bearer ${apiKey}`,
+      'X-Runway-Version': API_VERSION
+    }
+  });
+  if(!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function waitForTask(apiKey, id, onUpdate){
+  while(true){
+    const t = await getTask(apiKey, id);
+    if(onUpdate) onUpdate(t);
+    if(t.status && t.status !== 'RUNNING' && t.status !== 'PENDING') return t;
+    await new Promise(r=>setTimeout(r,2000));
+  }
+}
