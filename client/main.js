@@ -1,12 +1,10 @@
-// Runway API Playground (deferred uploads & multi-image)
-const API_BASE = "http://localhost:5100/api";
-const API_VERSION = "2024-11-06";
+import { init } from './chat.js';
+import { initHeader } from './header.js';
+import { hidePopups } from './ui.js';
 
-const PRICING = {
-  gen4_aleph: { kind: "video", creditsPerSecond: 15, durations: [5] },
-  gen4_turbo: { kind: "video", creditsPerSecond: 5, durations: [5, 10] },
-  gen4_image: { kind: "image", creditsPerImage: { "720p": 5, "1080p": 8 } },
-};
+console.log('main.js loaded, initializing');
+initHeader();
+init();
 
 // State for deferred uploads
 const state = {
