@@ -9,13 +9,14 @@
 <body>
   <div class="app">
     <aside class="sidebar">
-      <div class="sidebar-header">
-        <button id="newChatBtn"><img src="./icons/plus.svg" alt="+" /></button>
-        <span class="spacer"></span>
-        <input id="apiKey" type="password" placeholder="API key" />
-        <button id="saveKeyBtn">Save</button>
+      <div class="sidebar-top">
+        <button id="newChatBtn" class="new-chat"><img src="./icons/plus.svg" alt="+" />Новый чат</button>
       </div>
       <ul id="chatList" class="chat-list"></ul>
+      <div class="sidebar-bottom">
+        <input id="apiKey" type="password" placeholder="API key" />
+        <button id="saveKeyBtn">Сохранить</button>
+      </div>
     </aside>
     <main class="main">
       <header class="topbar">
@@ -25,11 +26,13 @@
       <section id="messages" class="messages"></section>
       <footer class="composer">
         <input id="fileInput" type="file" hidden multiple />
-        <button id="attachBtn" class="icon-btn"><img src="./icons/paperclip.svg" alt="attach" /></button>
-        <button id="ratioBtn" class="icon-btn"><img src="./icons/crop.svg" alt="ratio" /></button>
-        <button id="durationBtn" class="icon-btn"><img src="./icons/timer.svg" alt="duration" /></button>
-        <input id="promptInput" type="text" placeholder="Введите промпт..." />
-        <button id="sendBtn" class="icon-btn"><img src="./icons/send.svg" alt="send" /></button>
+        <div class="prompt-box">
+          <button id="attachBtn" class="icon-btn"><img src="./icons/paperclip.svg" alt="attach" /></button>
+          <textarea id="promptInput" rows="1" placeholder="Введите промпт..."></textarea>
+          <button id="ratioBtn" class="icon-btn"><img src="./icons/crop.svg" alt="ratio" /></button>
+          <button id="durationBtn" class="icon-btn"><img src="./icons/timer.svg" alt="duration" /></button>
+        </div>
+        <button id="sendBtn" class="send-btn"><img src="./icons/send.svg" alt="send" /></button>
         <div id="estCost" class="estimate"></div>
       </footer>
     </main>

@@ -42,8 +42,16 @@ function renderChatList(){
   chatListEl.innerHTML='';
   chats.forEach(c=>{
     const li=document.createElement('li');
-    li.textContent=c.name;
     li.dataset.id=c.id;
+    const span=document.createElement('span');
+    span.textContent=c.name;
+    li.appendChild(span);
+    const menuBtn=document.createElement('button');
+    menuBtn.className='menu-btn';
+    menuBtn.innerHTML='<img src="./icons/ellipsis.svg" alt="menu" />';
+    li.appendChild(menuBtn);
+    menuBtn.addEventListener('click',e=>{e.stopPropagation();showChatMenu(c.id, li);});
+
     if(activeChat===c.id) li.classList.add('active');
     li.addEventListener('click',()=>selectChat(c.id));
     chatListEl.appendChild(li);
@@ -59,6 +67,37 @@ async function selectChat(id){
   currentFiles = chat.state.files||[];
   const msgs=await api.listMessages(id);
   renderMessages(msgs);
+}
+
+function showChatMenu(id, li){
+  let menu=li.querySelector('.chat-menu');
+  if(menu){ menu.remove(); return; }
+  menu=document.createElement('div');
+  menu.className='chat-menu';
+  const rename=document.createElement('button');
+  rename.innerHTML='<img src="./icons/pencil.svg" alt="rename" /> Переименовать';
+  rename.addEventListener('click',async e=>{
+    e.stopPropagation();
+    const name=prompt('Новое имя чата');
+    if(name){ await api.updateChat(id,{name}); const c=chats.find(x=>x.id===id); if(c) c.name=name; renderChatList(); }
+    menu.remove();
+  });
+  const del=document.createElement('button');
+  del.className='danger';
+  del.innerHTML='<img src="./icons/trash.svg" alt="delete" /> Удалить';
+  del.addEventListener('click',async e=>{
+    e.stopPropagation();
+    if(confirm('Удалить чат?')){
+      await api.deleteChat(id);
+      chats=chats.filter(c=>c.id!==id);
+      if(activeChat===id){activeChat=null; if(chats[0]) selectChat(chats[0].id); else messagesEl.innerHTML='';}
+      else renderChatList();
+    }
+    menu.remove();
+  });
+  menu.appendChild(rename);
+  menu.appendChild(del);
+  li.appendChild(menu);
 }
 
 function renderMessages(msgs){
