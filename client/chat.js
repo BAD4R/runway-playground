@@ -51,6 +51,7 @@ function renderChatList(){
     menuBtn.innerHTML='<img src="./icons/ellipsis.svg" alt="menu" />';
     li.appendChild(menuBtn);
     menuBtn.addEventListener('click',e=>{e.stopPropagation();showChatMenu(c.id, li);});
+
     if(activeChat===c.id) li.classList.add('active');
     li.addEventListener('click',()=>selectChat(c.id));
     chatListEl.appendChild(li);
