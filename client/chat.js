@@ -16,6 +16,8 @@ let currentFiles = {};
 let currentRatio = null;
 let currentDuration = null;
 let chatColor = '#d946ef';
+let autoOpenAttach = false;
+let droppedInSlot = false;
 
 function withAlpha(hex, alpha){
   const r=parseInt(hex.slice(1,3),16);
@@ -226,7 +228,7 @@ function makeSlot(slotName,index,uri){
     slot.addEventListener('click',()=>openFile(slotName,index));
     slot.addEventListener('dragover',e=>{e.preventDefault();slot.classList.add('dragover');});
     slot.addEventListener('dragleave',()=>slot.classList.remove('dragover'));
-    slot.addEventListener('drop',e=>{e.preventDefault();slot.classList.remove('dragover');handleFiles(slotName,index,e.dataTransfer.files);});
+    slot.addEventListener('drop',e=>{e.preventDefault();slot.classList.remove('dragover');droppedInSlot=true;handleFiles(slotName,index,e.dataTransfer.files);});
   }
   return slot;
 }
@@ -366,31 +368,32 @@ async function loadChats(){
 }
 
 async function selectChat(id){
-  activeChat=id;
-  renderChatList();
   const chat=await api.getChat(id);
-  promptInput.value=chat.state.prompt||'';
   currentModel=chat.state.model||currentModel;
   const info=MODEL_INFO[currentModel];
-  chatColor=info.color;
-  modelBtn.textContent=info.label;
+  promptInput.value=chat.state.prompt||'';
   ratioBtn.style.display = info.ratios ? '' : 'none';
   durationBtn.style.display = info.durations ? '' : 'none';
-  document.documentElement.style.setProperty('--accent', chatColor);
-  document.documentElement.style.setProperty('--accent-bg', withAlpha(chatColor,0.15));
   currentFiles=chat.state.files||{};
   currentRatio=chat.state.ratio||null;
   currentDuration=chat.state.duration||null;
-  if(chat.state.color!==chatColor){ chat.state.color=chatColor; await api.updateChat(id,{state:chat.state}); }
+  modelBtn.textContent=info.label;
   renderAttachMenu();
   renderAttachPreview();
   updateCost();
   updateModelDesc();
   const msgs=await api.listMessages(id);
-  renderMessages(msgs);
+  renderMessages(msgs, async ()=>{
+    activeChat=id;
+    chatColor=info.color;
+    document.documentElement.style.setProperty('--accent', chatColor);
+    document.documentElement.style.setProperty('--accent-bg', withAlpha(chatColor,0.15));
+    if(chat.state.color!==chatColor){ chat.state.color=chatColor; await api.updateChat(id,{state:chat.state}); }
+    renderChatList();
+  });
 }
 
-function renderMessages(msgs){
+function renderMessages(msgs, cb){
   messagesEl.classList.add('fade-out');
   setTimeout(()=>{
     messagesEl.innerHTML='';
@@ -405,7 +408,10 @@ function renderMessages(msgs){
     }
     messagesEl.classList.remove('fade-out');
     messagesEl.classList.add('fade-in');
-    setTimeout(()=>messagesEl.classList.remove('fade-in'),200);
+    setTimeout(()=>{
+      messagesEl.classList.remove('fade-in');
+      if(cb) cb();
+    },200);
   },200);
 }
 
@@ -614,11 +620,7 @@ export function init(){
     const color=MODEL_INFO[currentModel].color;
     const c=await api.createChat('Новый чат',{color,model:currentModel});
     c.state={color,model:currentModel};
-    chatColor=color;
-    document.documentElement.style.setProperty('--accent', color);
-    document.documentElement.style.setProperty('--accent-bg', withAlpha(color,0.15));
     chats.unshift(c);
-    renderChatList();
     selectChat(c.id);
   });
   modelBtn.addEventListener('click',e=>{
@@ -638,6 +640,30 @@ export function init(){
   sendBtn.addEventListener('click',handleSend);
   balanceEl.addEventListener('click',()=>refreshBalance());
   setInterval(()=>refreshBalance(true),60000);
+
+  document.addEventListener('dragenter',e=>{
+    if(e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')){
+      if(attachMenu.classList.contains('hidden')){
+        renderAttachMenu();
+        togglePopup(attachBtn, attachMenu);
+        autoOpenAttach=true;
+      }
+    }
+  });
+  document.addEventListener('dragleave',e=>{
+    if(autoOpenAttach && e.target===document.body){
+      hidePopups();
+      autoOpenAttach=false;
+    }
+  });
+  document.addEventListener('drop',e=>{
+    if(autoOpenAttach){
+      if(!droppedInSlot) hidePopups();
+      autoOpenAttach=false;
+      droppedInSlot=false;
+    }
+  });
+
   loadChats();
 }
 
