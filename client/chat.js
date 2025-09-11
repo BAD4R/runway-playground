@@ -17,6 +17,7 @@ const balanceEl = document.getElementById('balanceCredits');
 const refreshBalanceBtn = document.getElementById('refreshBalanceBtn');
 const attachPreview = document.getElementById('attachPreview');
 
+
 let chats = [];
 let activeChat = null;
 let currentFiles = [];
@@ -70,6 +71,7 @@ function renderChatList(){
     menuBtn.innerHTML='<img src="./icons/ellipsis.svg" alt="menu" />';
     li.appendChild(menuBtn);
     menuBtn.addEventListener('click',e=>{e.stopPropagation();showChatMenu(c.id, li);});
+
     if(activeChat===c.id) li.classList.add('active');
     li.addEventListener('click',()=>selectChat(c.id));
     chatListEl.appendChild(li);
@@ -175,6 +177,7 @@ async function handleSend(){
   currentFiles=[]; promptInput.value='';
   renderAttachPreview();
   await api.updateChat(activeChat,{state:{model,prompt:'',files:[],ratio:currentRatio,duration:currentDuration}});
+
 }
 
 function createMessageEl(m){
@@ -206,6 +209,7 @@ async function buildPayload(model, prompt, files){
       return {model, videoUri: files[0]};
     case 'character_performance':
       return {model, ratio: currentRatio || info.ratios?.[0] || '1280:720', character:{type:'image', uri:files[0]}, reference:{type:'video', uri:files[1]||files[0]}};
+
     default:
       return {model, promptText:prompt};
   }
@@ -217,6 +221,7 @@ function handleFileInput(e){
     const reader = new FileReader();
     reader.onload = () => {
       currentFiles.push(reader.result); updateChatState(); renderAttachPreview();
+
     };
     reader.readAsDataURL(f);
   });
