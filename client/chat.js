@@ -6,8 +6,8 @@ const log = (...args) => console.log('[chat]', ...args);
 
 let modelBtn, modelMenu, chatListEl, newChatBtn, messagesEl, promptInput,
     sendBtn, attachBtn, ratioBtn, durationBtn, hiddenFile, apiKeyInput,
-    saveKeyBtn, balanceEl, refreshBalanceBtn, attachPreview, attachMenu,
-    estCost;
+    saveKeyBtn, balanceEl, attachPreview, attachMenu, estCost,
+    settingsBtn, settingsModal, viewer;
 
 let chats = [];
 let activeChat = null;
@@ -15,10 +15,7 @@ let currentModel = 'gen4_image';
 let currentFiles = {};
 let currentRatio = null;
 let currentDuration = null;
-
-const COLORS=['#d946ef','#6366f1','#0ea5e9','#22c55e','#f97316'];
-let chatColor = COLORS[0];
-function randomColor(){return COLORS[Math.floor(Math.random()*COLORS.length)];}
+let chatColor = '#d946ef';
 
 function withAlpha(hex, alpha){
   const r=parseInt(hex.slice(1,3),16);
@@ -27,56 +24,87 @@ function withAlpha(hex, alpha){
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+function autoResize(el){
+  el.style.height='auto';
+  el.style.height=Math.min(el.scrollHeight,120)+'px';
+}
+
+function openViewer(src,isVideo){
+  viewer.innerHTML='';
+  const content=document.createElement('div');
+  content.className='modal-content';
+  const el=isVideo?document.createElement('video'):document.createElement('img');
+  el.src=src;
+  if(isVideo) el.controls=true;
+  content.appendChild(el);
+  viewer.appendChild(content);
+  viewer.classList.remove('hidden');
+}
+
 const MODEL_INFO = {
-  gen4_image: {
+  gen4_image:{
+    label:'Gen4 Image',
+    color:'#d946ef',
     desc:'Генерация изображений по тексту и референсам.',
-    endpoint: 'text_to_image',
-    ratios: ['1920:1080','1080:1920','1024:1024','1360:768','1080:1080','1168:880','1440:1080','1080:1440','1808:768','2112:912','1280:720','720:1280','720:720','960:720','720:960','1680:720'],
-    slots: [{name:'referenceImages', type:'image', multiple:true}],
-    cost: ({ratio}) => (ratio && ratio.includes('1080') ? 8 : 5)
+    endpoint:'text_to_image',
+    ratios:['1920:1080','1080:1920','1024:1024','1360:768','1080:1080','1168:880','1440:1080','1080:1440','1808:768','2112:912','1280:720','720:1280','720:720','960:720','720:960','1680:720'],
+    slots:[{name:'referenceImages',label:'Референсы',help:'до 3 изображений',type:'image',multiple:true,count:3}],
+    cost:({ratio})=> (ratio&&ratio.includes('1080')?8:5)
   },
-  gen4_image_turbo: {
+  gen4_image_turbo:{
+    label:'Gen4 Image Turbo',
+    color:'#6366f1',
     desc:'Быстрая генерация изображений.',
     endpoint:'text_to_image',
     ratios:['1280:720','720:1280'],
-    slots:[{name:'referenceImages', type:'image', multiple:true}],
-    cost: () => 2
+    slots:[{name:'referenceImages',label:'Референсы',help:'до 3 изображений',type:'image',multiple:true,count:3}],
+    cost:()=>2
   },
-  gen4_turbo: {
+  gen4_turbo:{
+    label:'Gen4 Turbo',
+    color:'#0ea5e9',
     desc:'Создание короткого видео по изображению и тексту.',
     endpoint:'image_to_video',
     ratios:['1280:720','720:1280','1104:832','832:1104','960:960','1584:672'],
     durations:[5,10],
-    slots:[{name:'promptImage', type:'image'}],
-    cost: ({duration=5}) => 5*duration
+    slots:[{name:'promptImage',label:'Изображение',help:'первый кадр',type:'image',count:1}],
+    cost:({duration=5})=>5*duration
   },
-  gen4_aleph: {
+  gen4_aleph:{
+    label:'Gen4 Aleph',
+    color:'#22c55e',
     desc:'Преобразование видео с учётом референсов.',
     endpoint:'video_to_video',
     ratios:['1280:720','720:1280','1104:832','960:960','832:1104','1584:672','848:480','640:480'],
-    slots:[{name:'videoUri', type:'video'},{name:'references', type:'image', multiple:true}],
-    cost: ({duration=5}) => 15*duration
+    slots:[{name:'videoUri',label:'Видео',help:'исходное видео',type:'video',count:1},{name:'references',label:'Референсы',help:'изображения стиля',type:'image',multiple:true,count:3}],
+    cost:({duration=5})=>15*duration
   },
-  upscale_v1: {
+  upscale_v1:{
+    label:'Upscale v1',
+    color:'#f97316',
     desc:'Апскейл видео до 4K.',
     endpoint:'video_upscale',
-    slots:[{name:'videoUri', type:'video'}],
-    cost: ({duration=5}) => 2*duration
+    slots:[{name:'videoUri',label:'Видео',help:'для апскейла',type:'video',count:1}],
+    cost:({duration=5})=>2*duration
   },
-  act_two: {
+  act_two:{
+    label:'Act Two',
+    color:'#eab308',
     desc:'Анимация персонажа по движению актёра.',
     endpoint:'character_performance',
     ratios:['1280:720','720:1280','960:960','1104:832','832:1104','1584:672'],
-    slots:[{name:'character', type:'image'},{name:'reference', type:'video'}],
-    cost: ({duration=5}) => 5*duration
+    slots:[{name:'character',label:'Персонаж',help:'изображение или видео',type:'image',count:1},{name:'reference',label:'Референс',help:'видео движения',type:'video',count:1}],
+    cost:({duration=5})=>5*duration
   },
-  veo3: {
+  veo3:{
+    label:'Veo3',
+    color:'#14b8a6',
     desc:'Высококачественное видео из изображения.',
     endpoint:'image_to_video',
     ratios:['1280:720','720:1280'],
     durations:[8],
-    slots:[{name:'promptImage', type:'image'}],
-    cost: ({duration=8}) => 40*duration
+    slots:[{name:'promptImage',label:'Изображение',help:'начальный кадр',type:'image',count:1}],
+    cost:({duration=8})=>40*duration
   }
 };
 
@@ -84,7 +112,7 @@ function populateModelMenu(){
   modelMenu.innerHTML='';
   Object.keys(MODEL_INFO).forEach(m=>{
     const btn=document.createElement('button');
-    btn.textContent=m;
+    btn.textContent=MODEL_INFO[m].label;
     btn.addEventListener('click',()=>{selectModel(m);hidePopups();});
     modelMenu.appendChild(btn);
   });
@@ -92,8 +120,11 @@ function populateModelMenu(){
 
 function selectModel(m){
   currentModel=m;
-  document.getElementById('modelLabel').textContent=m;
   const info=MODEL_INFO[m];
+  modelBtn.textContent=info.label;
+  chatColor=info.color;
+  document.documentElement.style.setProperty('--accent', chatColor);
+  document.documentElement.style.setProperty('--accent-bg', withAlpha(chatColor,0.15));
   ratioBtn.style.display = info.ratios ? '' : 'none';
   durationBtn.style.display = info.durations ? '' : 'none';
   currentRatio=null; currentDuration=null; currentFiles={};
@@ -109,15 +140,22 @@ function renderAttachMenu(){
   const info=MODEL_INFO[currentModel];
   if(!info.slots) return;
   info.slots.forEach(slot=>{
-    const label=document.createElement('div');
-    label.textContent=slot.name;
-    attachMenu.appendChild(label);
+    const lbl=document.createElement('div');
+    lbl.className='slot-label';
+    lbl.textContent=slot.label;
+    attachMenu.appendChild(lbl);
+    const hint=document.createElement('div');
+    hint.className='slot-hint';
+    hint.textContent=slot.help;
+    attachMenu.appendChild(hint);
+    const cont=document.createElement('div');
+    cont.className='slot-container';
     const val=currentFiles[slot.name];
     const arr=slot.multiple ? (Array.isArray(val)?val:[]) : (val?[val]:[]);
-    arr.forEach((v,i)=>attachMenu.appendChild(makeSlot(slot.name,i,v)));
-    if(!slot.multiple || arr.length<3){
-      attachMenu.appendChild(makeSlot(slot.name,arr.length,null));
+    for(let i=0;i<slot.count;i++){
+      cont.appendChild(makeSlot(slot.name,i,arr[i]));
     }
+    attachMenu.appendChild(cont);
   });
 }
 
@@ -157,8 +195,9 @@ function handleFiles(slotName,index,files){
   if(!file) return;
   const reader=new FileReader();
   reader.onload=()=>{
-    if(MODEL_INFO[currentModel].slots.find(s=>s.name===slotName).multiple){
-      if(!Array.isArray(currentFiles[slotName])) currentFiles[slotName]=[];
+    const slot=MODEL_INFO[currentModel].slots.find(s=>s.name===slotName);
+    if(slot.multiple){
+      if(!Array.isArray(currentFiles[slotName])) currentFiles[slotName]=Array(slot.count).fill(null);
       currentFiles[slotName][index]=reader.result;
     }else{
       currentFiles[slotName]=reader.result;
@@ -173,7 +212,7 @@ function handleFiles(slotName,index,files){
 function removeFile(slotName,index){
   const slot=MODEL_INFO[currentModel].slots.find(s=>s.name===slotName);
   if(slot.multiple){
-    currentFiles[slotName].splice(index,1);
+    if(Array.isArray(currentFiles[slotName])) currentFiles[slotName][index]=null;
   }else{
     delete currentFiles[slotName];
   }
@@ -188,14 +227,22 @@ function renderAttachPreview(){
     const val=currentFiles[slot];
     const arr=Array.isArray(val)?val:[val];
     arr.forEach((uri,i)=>{
+      if(!uri) return;
       const wrap=document.createElement('div');
       wrap.className='thumb';
-      const img=document.createElement('img');
-      img.src=uri;
-      wrap.appendChild(img);
+      let el;
+      if(typeof uri==='string' && uri.startsWith('data:video')){
+        el=document.createElement('video');
+        el.src=uri; el.muted=true; el.loop=true; el.play();
+      }else{
+        el=document.createElement('img');
+        el.src=uri;
+      }
+      el.addEventListener('click',()=>openViewer(uri,uri.startsWith('data:video')));
+      wrap.appendChild(el);
       const rm=document.createElement('button');
       rm.textContent='×';
-      rm.addEventListener('click',()=>removeFile(slot,i));
+      rm.addEventListener('click',e=>{e.stopPropagation();removeFile(slot,i);});
       wrap.appendChild(rm);
       attachPreview.appendChild(wrap);
     });
@@ -262,9 +309,9 @@ async function loadChats(){
   try{ chats=await api.listChats(); }catch(e){ chats=[]; }
   renderChatList();
   if(chats.length===0){
-    const color=randomColor();
-    const c=await api.createChat('Новый чат',{color});
-    c.state={color};
+    const color=MODEL_INFO[currentModel].color;
+    const c=await api.createChat('Новый чат',{color,model:currentModel});
+    c.state={color,model:currentModel};
     chats.unshift(c);
     renderChatList();
   }
@@ -277,17 +324,21 @@ async function selectChat(id){
   const chat=await api.getChat(id);
   promptInput.value=chat.state.prompt||'';
   currentModel=chat.state.model||currentModel;
-  selectModel(currentModel);
+  const info=MODEL_INFO[currentModel];
+  chatColor=info.color;
+  modelBtn.textContent=info.label;
+  ratioBtn.style.display = info.ratios ? '' : 'none';
+  durationBtn.style.display = info.durations ? '' : 'none';
+  document.documentElement.style.setProperty('--accent', chatColor);
+  document.documentElement.style.setProperty('--accent-bg', withAlpha(chatColor,0.15));
   currentFiles=chat.state.files||{};
   currentRatio=chat.state.ratio||null;
   currentDuration=chat.state.duration||null;
-  chatColor=chat.state.color||randomColor();
-  document.documentElement.style.setProperty('--accent', chatColor);
-  document.documentElement.style.setProperty('--accent-bg', withAlpha(chatColor,0.15));
-  if(!chat.state.color){ chat.state.color=chatColor; await api.updateChat(id,{state:chat.state}); }
+  if(chat.state.color!==chatColor){ chat.state.color=chatColor; await api.updateChat(id,{state:chat.state}); }
   renderAttachMenu();
   renderAttachPreview();
   updateCost();
+  updateModelDesc();
   const msgs=await api.listMessages(id);
   renderMessages(msgs);
 }
@@ -324,11 +375,13 @@ function createMessageEl(m){
       if(typeof a === 'string' && a.startsWith('data:video')){
         const v=document.createElement('video');
         v.src=a; v.controls=true; v.className='attachment';
+        v.addEventListener('click',()=>openViewer(a,true));
         div.appendChild(v);
       }else{
         const img=document.createElement('img');
         img.src=a;
         img.className='attachment';
+        img.addEventListener('click',()=>openViewer(a,false));
         div.appendChild(img);
       }
     });
@@ -358,7 +411,7 @@ async function handleSend(){
   await api.addMessage(activeChat,userMsg);
   messagesEl.querySelector('.model-desc')?.remove();
   messagesEl.appendChild(createMessageEl(userMsg));
-  promptInput.value=''; currentFiles={}; renderAttachMenu(); renderAttachPreview(); updateChatState();
+  promptInput.value=''; autoResize(promptInput); currentFiles={}; renderAttachMenu(); renderAttachPreview(); updateChatState();
   const placeholder={role:'assistant',content:'',status:'Обработка...',attachments:[]};
   const placeholderEl=createMessageEl(placeholder);
   messagesEl.appendChild(placeholderEl);
@@ -388,7 +441,7 @@ async function handleSend(){
 
 function collectAllFiles(){
   const arr=[];
-  Object.values(currentFiles).forEach(v=>{ if(Array.isArray(v)) arr.push(...v); else if(v) arr.push(v);});
+  Object.values(currentFiles).forEach(v=>{ if(Array.isArray(v)) v.forEach(x=>{if(x) arr.push(x);}); else if(v) arr.push(v);});
   return arr;
 }
 
@@ -396,11 +449,11 @@ async function buildPayload(model,prompt,files){
   const info=MODEL_INFO[model];
   switch(info.endpoint){
     case 'text_to_image':
-      return {model,promptText:prompt,ratio:currentRatio||info.ratios?.[0],referenceImages:(files.referenceImages||[]).map(u=>({uri:u}))};
+      return {model,promptText:prompt,ratio:currentRatio||info.ratios?.[0],referenceImages:(files.referenceImages||[]).filter(Boolean).map(u=>({uri:u}))};
     case 'image_to_video':
       return {model,promptText:prompt,ratio:currentRatio||info.ratios?.[0],duration:currentDuration||info.durations?.[0],promptImage:files.promptImage};
     case 'video_to_video':
-      return {model,promptText:prompt,ratio:currentRatio||info.ratios?.[0],videoUri:files.videoUri,references:(files.references||[]).map(u=>({type:'image',uri:u}))};
+      return {model,promptText:prompt,ratio:currentRatio||info.ratios?.[0],videoUri:files.videoUri,references:(files.references||[]).filter(Boolean).map(u=>({type:'image',uri:u}))};
     case 'video_upscale':
       return {model,videoUri:files.videoUri};
     case 'character_performance':
@@ -432,12 +485,14 @@ export function init(){
   apiKeyInput=document.getElementById('apiKey');
   saveKeyBtn=document.getElementById('saveKeyBtn');
   balanceEl=document.getElementById('balanceCredits');
-  refreshBalanceBtn=document.getElementById('refreshBalanceBtn');
   attachPreview=document.getElementById('attachPreview');
   attachMenu=document.getElementById('attachMenu');
   estCost=document.getElementById('estCost');
+  settingsBtn=document.getElementById('settingsBtn');
+  settingsModal=document.getElementById('settingsModal');
+  viewer=document.getElementById('viewer');
 
-  if(!modelBtn||!chatListEl||!newChatBtn||!messagesEl||!promptInput||!sendBtn||!attachBtn||!ratioBtn||!durationBtn||!hiddenFile||!apiKeyInput||!saveKeyBtn||!balanceEl||!refreshBalanceBtn||!attachPreview||!attachMenu){
+  if(!modelBtn||!chatListEl||!newChatBtn||!messagesEl||!promptInput||!sendBtn||!attachBtn||!ratioBtn||!durationBtn||!hiddenFile||!apiKeyInput||!saveKeyBtn||!balanceEl||!attachPreview||!attachMenu||!settingsBtn||!settingsModal||!viewer){
     console.error('Missing DOM elements'); return;
   }
 
@@ -446,11 +501,14 @@ export function init(){
   apiKeyInput.value=getApiKey();
   if(apiKeyInput.value) refreshBalance(true);
 
-  saveKeyBtn.addEventListener('click',()=>{ setApiKey(apiKeyInput.value.trim()); refreshBalance();});
+  saveKeyBtn.addEventListener('click',()=>{ setApiKey(apiKeyInput.value.trim()); settingsModal.classList.add('hidden'); refreshBalance();});
+  settingsBtn.addEventListener('click',()=>{ settingsModal.classList.remove('hidden'); });
+  settingsModal.addEventListener('click',e=>{ if(e.target===settingsModal) settingsModal.classList.add('hidden'); });
+  viewer.addEventListener('click',e=>{ if(e.target===viewer) viewer.classList.add('hidden'); });
   newChatBtn.addEventListener('click',async()=>{
-    const color=randomColor();
-    const c=await api.createChat('Новый чат',{color});
-    c.state={color};
+    const color=MODEL_INFO[currentModel].color;
+    const c=await api.createChat('Новый чат',{color,model:currentModel});
+    c.state={color,model:currentModel};
     chatColor=color;
     document.documentElement.style.setProperty('--accent', color);
     document.documentElement.style.setProperty('--accent-bg', withAlpha(color,0.15));
@@ -470,29 +528,32 @@ export function init(){
   hiddenFile.addEventListener('change',e=>{const slot=hiddenFile.dataset.slot;const idx=parseInt(hiddenFile.dataset.index,10)||0;handleFiles(slot,idx,e.target.files);hiddenFile.value='';});
   ratioBtn.addEventListener('click',e=>{e.stopPropagation();showRatioMenu();});
   durationBtn.addEventListener('click',e=>{e.stopPropagation();showDurationMenu();});
-  promptInput.addEventListener('input',updateChatState);
+  promptInput.addEventListener('input',()=>{autoResize(promptInput);updateChatState();});
+  autoResize(promptInput);
   sendBtn.addEventListener('click',handleSend);
-  refreshBalanceBtn.addEventListener('click',()=>refreshBalance());
+  balanceEl.addEventListener('click',()=>refreshBalance());
   setInterval(()=>refreshBalance(true),60000);
   loadChats();
 }
 
 function showRatioMenu(){
+  hidePopups();
   const info=MODEL_INFO[currentModel];
   const opts=info.ratios||[]; if(opts.length===0) return;
   const menu=document.createElement('div');
-  menu.className='popup dynamic hidden';
+  menu.className='popup dynamic';
   opts.forEach(r=>{const b=document.createElement('button');b.textContent=r;b.addEventListener('click',()=>{currentRatio=r;updateChatState();updateCost();hidePopups();});menu.appendChild(b);});
   document.body.appendChild(menu);
-  togglePopup(ratioBtn, menu);
+  positionPopup(ratioBtn, menu);
 }
 
 function showDurationMenu(){
+  hidePopups();
   const info=MODEL_INFO[currentModel];
   const opts=info.durations||[]; if(opts.length===0) return;
   const menu=document.createElement('div');
-  menu.className='popup dynamic hidden';
+  menu.className='popup dynamic';
   opts.forEach(d=>{const b=document.createElement('button');b.textContent=d+' сек';b.addEventListener('click',()=>{currentDuration=d;updateChatState();updateCost();hidePopups();});menu.appendChild(b);});
   document.body.appendChild(menu);
-  togglePopup(durationBtn, menu);
+  positionPopup(durationBtn, menu);
 }

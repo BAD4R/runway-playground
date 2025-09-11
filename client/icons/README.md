@@ -12,3 +12,4 @@ Add SVG files with the following names:
 - chevron-down.svg
 - runway.png
 - elevenlabs.png
+- gear.svg

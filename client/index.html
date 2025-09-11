@@ -29,32 +29,42 @@
       </div>
       <ul id="chatList" class="chat-list"></ul>
       <div class="sidebar-bottom">
-        <input id="apiKey" type="password" placeholder="API key" />
-        <button id="saveKeyBtn">Сохранить</button>
+        <div class="balance">Кредиты: <span id="balanceCredits">—</span></div>
+        <button id="settingsBtn" class="icon-btn"><img src="./icons/gear.svg" alt="settings" /></button>
       </div>
     </aside>
     <main class="main">
       <header class="topbar">
-        <button id="modelBtn" class="icon-btn model-btn">Модель: <span id="modelLabel"></span></button>
+        <button id="modelBtn" class="model-btn"></button>
         <div id="modelMenu" class="popup static hidden"></div>
-        <div class="balance">Кредиты: <span id="balanceCredits">—</span> <button id="refreshBalanceBtn" class="linklike">⟳</button></div>
       </header>
       <section id="messages" class="messages"></section>
       <footer class="composer">
         <input id="hiddenFile" type="file" hidden />
-        <div id="attachMenu" class="popup static hidden"></div>
-        <div class="prompt-box">
-          <button id="attachBtn" class="icon-btn"><img src="./icons/paperclip.svg" alt="attach" /></button>
-          <textarea id="promptInput" rows="1" placeholder="Введите промпт..."></textarea>
-          <button id="ratioBtn" class="icon-btn"><img src="./icons/crop.svg" alt="ratio" /></button>
-          <button id="durationBtn" class="icon-btn"><img src="./icons/timer.svg" alt="duration" /></button>
-        </div>
+        <div id="attachMenu" class="popup static hidden attach-menu"></div>
         <div id="attachPreview" class="attach-preview"></div>
-        <button id="sendBtn" class="send-btn"><img src="./icons/send.svg" alt="send" /></button>
-        <div id="estCost" class="estimate"></div>
+        <textarea id="promptInput" rows="1" placeholder="Введите промпт..."></textarea>
+        <div class="controls">
+          <div class="left">
+            <button id="attachBtn" class="icon-btn"><img src="./icons/paperclip.svg" alt="attach" /></button>
+            <button id="ratioBtn" class="icon-btn"><img src="./icons/crop.svg" alt="ratio" /></button>
+            <button id="durationBtn" class="icon-btn"><img src="./icons/timer.svg" alt="duration" /></button>
+          </div>
+          <div class="right">
+            <div id="estCost" class="estimate"></div>
+            <button id="sendBtn" class="send-btn"><img src="./icons/send.svg" alt="send" /></button>
+          </div>
+        </div>
       </footer>
-      </main>
+    </main>
+  </div>
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-content">
+      <label>API ключ:<br/><input id="apiKey" type="password" /></label>
+      <button id="saveKeyBtn">Сохранить</button>
     </div>
+  </div>
+  <div id="viewer" class="modal hidden"></div>
   <script type="module" src="./main.js"></script>
 </body>
 </html>
