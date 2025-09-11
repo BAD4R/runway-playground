@@ -182,6 +182,15 @@ def proxy(full_path):
         resp.headers["Content-Length"] = r.headers["Content-Length"]
     return resp
 
+# ---------- Client files ----------
+@app.route("/", defaults={"path": "index.html"}, methods=["GET"])
+@app.route("/<path:path>", methods=["GET"])
+def client_files(path):
+    target = CLIENT_DIR / path
+    if target.is_dir():
+        path = f"{path.rstrip('/')}/index.html"
+    return send_from_directory(CLIENT_DIR, path)
+
 if __name__ == "__main__":
     logger.info("▶️  Flask proxy listening on http://localhost:5100")
     logger.info("    Forwarding /api/* -> %s/*", UPSTREAM)
