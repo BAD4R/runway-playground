@@ -1,5 +1,8 @@
-import { init } from './chat.js';
+import { init, hidePopups } from './chat.js';
+import { initHeader } from './header.js';
 
-// Immediately initialize and log for easier debugging
 console.log('main.js loaded, initializing');
+initHeader();
 init();
+
+document.addEventListener('click',e=>{ if(!e.target.closest('.popup')) hidePopups(); });

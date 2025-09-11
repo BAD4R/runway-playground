@@ -21,15 +21,16 @@ def list_chats():
 def create_chat():
     data = request.get_json(silent=True) or {}
     name = data.get("name") or "New chat"
+    state = data.get("state") or {}
     now = _now()
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO chats (name, state, created_at, updated_at) VALUES (?,?,?,?)",
-            (name, json.dumps({}), now, now),
+            (name, json.dumps(state), now, now),
         )
         chat_id = cur.lastrowid
         conn.commit()
-    return jsonify({"id": chat_id, "name": name})
+    return jsonify({"id": chat_id, "name": name, "state": state})
 
 
 @bp.get("/chats/<int:chat_id>")

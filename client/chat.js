@@ -1,5 +1,6 @@
 import * as api from './api.js';
 import { getApiKey, setApiKey } from './state.js';
+import { positionPopup } from './ui.js';
 
 const log = (...args) => console.log('[chat]', ...args);
 
@@ -14,21 +15,28 @@ let currentModel = 'gen4_image';
 let currentFiles = {};
 let currentRatio = null;
 let currentDuration = null;
+let chatColor = COLORS[0];
+
+const COLORS=['#d946ef','#6366f1','#0ea5e9','#22c55e','#f97316'];
+function randomColor(){return COLORS[Math.floor(Math.random()*COLORS.length)];}
 
 const MODEL_INFO = {
   gen4_image: {
+    desc:'Генерация изображений по тексту и референсам.',
     endpoint: 'text_to_image',
     ratios: ['1920:1080','1080:1920','1024:1024','1360:768','1080:1080','1168:880','1440:1080','1080:1440','1808:768','2112:912','1280:720','720:1280','720:720','960:720','720:960','1680:720'],
     slots: [{name:'referenceImages', type:'image', multiple:true}],
     cost: ({ratio}) => (ratio && ratio.includes('1080') ? 8 : 5)
   },
   gen4_image_turbo: {
+    desc:'Быстрая генерация изображений.',
     endpoint:'text_to_image',
     ratios:['1280:720','720:1280'],
     slots:[{name:'referenceImages', type:'image', multiple:true}],
     cost: () => 2
   },
   gen4_turbo: {
+    desc:'Создание короткого видео по изображению и тексту.',
     endpoint:'image_to_video',
     ratios:['1280:720','720:1280','1104:832','832:1104','960:960','1584:672'],
     durations:[5,10],
@@ -36,23 +44,27 @@ const MODEL_INFO = {
     cost: ({duration=5}) => 5*duration
   },
   gen4_aleph: {
+    desc:'Преобразование видео с учётом референсов.',
     endpoint:'video_to_video',
     ratios:['1280:720','720:1280','1104:832','960:960','832:1104','1584:672','848:480','640:480'],
     slots:[{name:'videoUri', type:'video'},{name:'references', type:'image', multiple:true}],
     cost: ({duration=5}) => 15*duration
   },
   upscale_v1: {
+    desc:'Апскейл видео до 4K.',
     endpoint:'video_upscale',
     slots:[{name:'videoUri', type:'video'}],
     cost: ({duration=5}) => 2*duration
   },
   act_two: {
+    desc:'Анимация персонажа по движению актёра.',
     endpoint:'character_performance',
     ratios:['1280:720','720:1280','960:960','1104:832','832:1104','1584:672'],
     slots:[{name:'character', type:'image'},{name:'reference', type:'video'}],
     cost: ({duration=5}) => 5*duration
   },
   veo3: {
+    desc:'Высококачественное видео из изображения.',
     endpoint:'image_to_video',
     ratios:['1280:720','720:1280'],
     durations:[8],
@@ -82,6 +94,7 @@ function selectModel(m){
   renderAttachMenu();
   updateCost();
   updateChatState();
+  updateModelDesc();
 }
 
 function renderAttachMenu(){
@@ -183,15 +196,18 @@ function renderAttachPreview(){
   log('preview files', Object.keys(currentFiles).length);
 }
 
-function hidePopups(){
-  document.querySelectorAll('.popup').forEach(p=>p.classList.add('hidden'));
+function updateModelDesc(){
+  const el=messagesEl.querySelector('.model-desc');
+  if(el) el.textContent=MODEL_INFO[currentModel].desc;
 }
 
-document.addEventListener('click',e=>{
-  if(!e.target.closest('.popup') && !e.target.closest('.menu-btn') && e.target!==modelBtn && !e.target.closest('#attachBtn')){
-    hidePopups();
-  }
-});
+export function hidePopups(){
+  document.querySelectorAll('.popup').forEach(p=>{
+    if(p.classList.contains('static')) p.classList.add('hidden');
+    else p.remove();
+  });
+}
+
 function renderChatList(){
   chatListEl.innerHTML='';
   chats.forEach(c=>{
@@ -216,7 +232,6 @@ function showChatMenu(id, li){
   if(menu){ menu.remove(); return; }
   menu=document.createElement('div');
   menu.className='chat-menu popup';
-
   const rename=document.createElement('button');
   rename.innerHTML='<img src="./icons/pencil.svg" alt="rename" /> Переименовать';
   rename.addEventListener('click',async e=>{
@@ -246,7 +261,13 @@ function showChatMenu(id, li){
 async function loadChats(){
   try{ chats=await api.listChats(); }catch(e){ chats=[]; }
   renderChatList();
-  if(chats.length===0){ const c=await api.createChat('Новый чат'); chats.unshift(c); renderChatList(); }
+  if(chats.length===0){
+    const color=randomColor();
+    const c=await api.createChat('Новый чат',{color});
+    c.state={color};
+    chats.unshift(c);
+    renderChatList();
+  }
   if(!activeChat && chats[0]) selectChat(chats[0].id);
 }
 
@@ -260,6 +281,9 @@ async function selectChat(id){
   currentFiles=chat.state.files||{};
   currentRatio=chat.state.ratio||null;
   currentDuration=chat.state.duration||null;
+  chatColor=chat.state.color||randomColor();
+  document.documentElement.style.setProperty('--accent', chatColor);
+  if(!chat.state.color){ chat.state.color=chatColor; await api.updateChat(id,{state:chat.state}); }
   renderAttachMenu();
   renderAttachPreview();
   updateCost();
@@ -269,8 +293,15 @@ async function selectChat(id){
 
 function renderMessages(msgs){
   messagesEl.innerHTML='';
-  msgs.forEach(m=>messagesEl.appendChild(createMessageEl(m)));
-  messagesEl.scrollTop=messagesEl.scrollHeight;
+  if(msgs.length===0){
+    const d=document.createElement('div');
+    d.className='model-desc';
+    d.textContent=MODEL_INFO[currentModel].desc;
+    messagesEl.appendChild(d);
+  }else{
+    msgs.forEach(m=>messagesEl.appendChild(createMessageEl(m)));
+    messagesEl.scrollTop=messagesEl.scrollHeight;
+  }
 }
 
 function createMessageEl(m){
@@ -306,7 +337,7 @@ function createMessageEl(m){
 
 function updateChatState(){
   if(!activeChat) return;
-  api.updateChat(activeChat,{state:{model:currentModel,prompt:promptInput.value,files:currentFiles,ratio:currentRatio,duration:currentDuration}});
+  api.updateChat(activeChat,{state:{model:currentModel,prompt:promptInput.value,files:currentFiles,ratio:currentRatio,duration:currentDuration,color:chatColor}});
 }
 
 function updateCost(){
@@ -324,6 +355,7 @@ async function handleSend(){
   const payload=await buildPayload(currentModel,prompt,currentFiles);
   const userMsg={role:'user',content:prompt,attachments:collectAllFiles()};
   await api.addMessage(activeChat,userMsg);
+  messagesEl.querySelector('.model-desc')?.remove();
   messagesEl.appendChild(createMessageEl(userMsg));
   promptInput.value=''; currentFiles={}; renderAttachMenu(); renderAttachPreview(); updateChatState();
   const placeholder={role:'assistant',content:'',status:'Обработка...',attachments:[]};
@@ -414,21 +446,32 @@ export function init(){
   if(apiKeyInput.value) refreshBalance(true);
 
   saveKeyBtn.addEventListener('click',()=>{ setApiKey(apiKeyInput.value.trim()); refreshBalance();});
-  newChatBtn.addEventListener('click',async()=>{const c=await api.createChat('Новый чат');chats.unshift(c);renderChatList();selectChat(c.id);});
+  newChatBtn.addEventListener('click',async()=>{
+    const color=randomColor();
+    const c=await api.createChat('Новый чат',{color});
+    c.state={color};
+    chatColor=color;
+    document.documentElement.style.setProperty('--accent', color);
+    chats.unshift(c);
+    renderChatList();
+    selectChat(c.id);
+  });
   modelBtn.addEventListener('click',e=>{
     e.stopPropagation();
-    modelMenu.classList.toggle('hidden');
-    const rect=modelBtn.getBoundingClientRect();
-    modelMenu.style.left=rect.left+'px';
-    modelMenu.style.top=(rect.bottom+4)+'px';
+    if(modelMenu.classList.contains('hidden')){
+      hidePopups();
+      modelMenu.classList.remove('hidden');
+      positionPopup(modelBtn, modelMenu);
+    }else{
+      modelMenu.classList.add('hidden');
+    }
   });
   attachBtn.addEventListener('click',e=>{
     e.stopPropagation();
+    hidePopups();
     renderAttachMenu();
-    attachMenu.classList.toggle('hidden');
-    const rect=attachBtn.getBoundingClientRect();
-    attachMenu.style.left=rect.left+'px';
-    attachMenu.style.top=(rect.top-attachMenu.offsetHeight-8)+'px';
+    attachMenu.classList.remove('hidden');
+    positionPopup(attachBtn, attachMenu);
   });
   hiddenFile.addEventListener('change',e=>{const slot=hiddenFile.dataset.slot;const idx=parseInt(hiddenFile.dataset.index,10)||0;handleFiles(slot,idx,e.target.files);hiddenFile.value='';});
   ratioBtn.addEventListener('click',e=>{e.stopPropagation();showRatioMenu();});
@@ -441,22 +484,23 @@ export function init(){
 }
 
 function showRatioMenu(){
+  hidePopups();
   const info=MODEL_INFO[currentModel];
   const opts=info.ratios||[]; if(opts.length===0) return;
   const menu=document.createElement('div');
-  menu.className='popup';
+  menu.className='popup dynamic';
   opts.forEach(r=>{const b=document.createElement('button');b.textContent=r;b.addEventListener('click',()=>{currentRatio=r;updateChatState();updateCost();hidePopups();});menu.appendChild(b);});
-  ratioBtn.after(menu); menu.style.right='0';
-  document.addEventListener('click',()=>menu.remove(),{once:true});
+  document.body.appendChild(menu);
+  positionPopup(ratioBtn, menu);
 }
 
 function showDurationMenu(){
+  hidePopups();
   const info=MODEL_INFO[currentModel];
   const opts=info.durations||[]; if(opts.length===0) return;
   const menu=document.createElement('div');
-  menu.className='popup';
+  menu.className='popup dynamic';
   opts.forEach(d=>{const b=document.createElement('button');b.textContent=d+' сек';b.addEventListener('click',()=>{currentDuration=d;updateChatState();updateCost();hidePopups();});menu.appendChild(b);});
-  durationBtn.after(menu); menu.style.right='0';
-  document.addEventListener('click',()=>menu.remove(),{once:true});
-
+  document.body.appendChild(menu);
+  positionPopup(durationBtn, menu);
 }

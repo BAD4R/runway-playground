@@ -12,11 +12,11 @@ export function listChats(){
   return jsonFetch(`${BASE}/local/chats`);
 }
 
-export function createChat(name){
+export function createChat(name, state={}){
   return jsonFetch(`${BASE}/local/chats`, {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({name})
+    body: JSON.stringify({name, state})
   });
 }
 

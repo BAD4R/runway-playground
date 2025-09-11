@@ -9,3 +9,7 @@ Add SVG files with the following names:
 - pencil.svg
 - ellipsis.svg
 - trash.svg
+- chevron-down.svg
+- recraft.png
+- elevenlabs.png
+

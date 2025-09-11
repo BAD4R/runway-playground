@@ -12,6 +12,16 @@
   </script>
 </head>
 <body>
+  <header class="service-header">
+    <div class="service-current" id="serviceSwitch">
+      <img src="./icons/recraft.png" alt="Recraft" id="serviceLogo" />
+      <img src="./icons/chevron-down.svg" alt="more" class="arrow" />
+    </div>
+    <div id="serviceMenu" class="popup static hidden">
+      <a href="./index.html"><img src="./icons/recraft.png" alt="Recraft" />Recraft</a>
+      <a href="./elevenlabs.html"><img src="./icons/elevenlabs.png" alt="ElevenLabs" />ElevenLabs</a>
+    </div>
+  </header>
   <div class="app">
     <aside class="sidebar">
       <div class="sidebar-top">
@@ -26,14 +36,13 @@
     <main class="main">
       <header class="topbar">
         <button id="modelBtn" class="icon-btn model-btn">Модель: <span id="modelLabel"></span></button>
-        <div id="modelMenu" class="popup hidden"></div>
+        <div id="modelMenu" class="popup static hidden"></div>
         <div class="balance">Кредиты: <span id="balanceCredits">—</span> <button id="refreshBalanceBtn" class="linklike">⟳</button></div>
       </header>
       <section id="messages" class="messages"></section>
       <footer class="composer">
         <input id="hiddenFile" type="file" hidden />
-        <div id="attachMenu" class="popup hidden"></div>
-
+        <div id="attachMenu" class="popup static hidden"></div>
         <div class="prompt-box">
           <button id="attachBtn" class="icon-btn"><img src="./icons/paperclip.svg" alt="attach" /></button>
           <textarea id="promptInput" rows="1" placeholder="Введите промпт..."></textarea>
@@ -46,7 +55,6 @@
       </footer>
       </main>
     </div>
-
   <script type="module" src="./main.js"></script>
 </body>
 </html>
