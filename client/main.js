@@ -78,7 +78,7 @@ function extractCreditBalance(j){
   return found;
 }
 
-(function init(){
+function init(){
   // Не даём браузеру открывать файл при dnd по странице
   window.addEventListener("dragover", (e)=> e.preventDefault());
   window.addEventListener("drop", (e)=> {
@@ -88,11 +88,11 @@ function extractCreditBalance(j){
   });
 
   const saved=localStorage.getItem("RUNWAY_API_KEY"); if(saved) els.apiKey.value=saved;
-  els.saveKeyBtn.addEventListener("click",()=>{ const k=els.apiKey.value.trim(); if(!k){alert("Введите API ключ.");return;} setApiKey(k); alert("Ключ сохранён."); refreshBalance(); });
-  els.refreshBalanceBtn.addEventListener("click", refreshBalance);
+  els.saveKeyBtn?.addEventListener("click",()=>{ const k=els.apiKey.value.trim(); if(!k){alert("Введите API ключ.");return;} setApiKey(k); alert("Ключ сохранён."); refreshBalance(); });
+  els.refreshBalanceBtn?.addEventListener("click", refreshBalance);
 
-  els.model.addEventListener("change", handleModelChange); handleModelChange();
-  ["change","input"].forEach(evt=>{ els.model.addEventListener(evt,updateEstimate); els.duration.addEventListener(evt,updateEstimate); els.ratio.addEventListener(evt,updateEstimate); });
+  els.model?.addEventListener("change", handleModelChange); handleModelChange();
+  ["change","input"].forEach(evt=>{ els.model?.addEventListener(evt,updateEstimate); els.duration?.addEventListener(evt,updateEstimate); els.ratio?.addEventListener(evt,updateEstimate); });
   updateEstimate();
   renderFiles();   // первичный рендер пустых списков
 
@@ -107,7 +107,7 @@ function extractCreditBalance(j){
 
   // VIDEO (Aleph) — одиночный файл
   bindDnD("videoDrop",".dz-area","video/*",(files)=>{ if(files[0]){ state.videoFile = files[0]; renderFiles(); } });
-  els.videoFileInput.addEventListener("change", ()=>{
+  els.videoFileInput?.addEventListener("change", ()=>{
     if (els.videoFileInput.files && els.videoFileInput.files[0]) {
       state.videoFile = els.videoFileInput.files[0];
       renderFiles();
@@ -116,13 +116,13 @@ function extractCreditBalance(j){
 
   // TURBO — множественные картинки (вход)
   bindDnD("imageDrop",".dz-area","image/*",(files)=>{ if(files.length){ state.imageFiles.push(...files); renderFiles(); } });
-  els.imageFileInput.addEventListener("change", ()=>{
+  els.imageFileInput?.addEventListener("change", ()=>{
     if (els.imageFileInput.files && els.imageFileInput.files.length) {
       state.imageFiles.push(...Array.from(els.imageFileInput.files));
       renderFiles();
     }
   });
-  els.addImageUrlBtn.addEventListener("click", ()=>{
+  els.addImageUrlBtn?.addEventListener("click", ()=>{
     const u = els.imageUrlInput.value.trim();
     if (u) { state.imageUrls.push(u); els.imageUrlInput.value = ""; renderFiles(); }
   });
@@ -146,12 +146,14 @@ function extractCreditBalance(j){
     });
 }
 
-  els.form.addEventListener("submit", onSubmit);
-  els.cancelBtn.addEventListener("click", onCancel);
+  els.form?.addEventListener("submit", onSubmit);
+  els.cancelBtn?.addEventListener("click", onCancel);
 
   setInterval(refreshBalance, 60*1000);
   refreshBalance();
-})();
+}
+
+window.addEventListener("DOMContentLoaded", init);
 
 function bindDnD(containerId, areaSel, accept, onFiles) {
   const c = document.getElementById(containerId); if (!c) return;
@@ -217,7 +219,7 @@ function renderFiles() {
     state.imageUrls.forEach((u, idx) => {
       const li = document.createElement("li");
       li.innerHTML = `
-        <div class="thumb"><img src="${u}" onerror="this.src='';this.parentNode.textContent='URL';"/></div>
+        <div class="thumb filled"><img src="${u}" onerror="this.src='';this.parentNode.textContent='URL';"/></div>
         <div class="meta">${escapeHtml(u)}</div>
         <button type="button" class="secondary">Удалить</button>`;
       li.querySelector("button").addEventListener("click", () => {
@@ -231,7 +233,7 @@ function renderFiles() {
       const li = document.createElement("li");
       const url = URL.createObjectURL(f);
       li.innerHTML = `
-        <div class="thumb"><img src="${url}" /></div>
+        <div class="thumb filled"><img src="${url}" /></div>
         <div class="meta">${escapeHtml(f.name)}</div>
         <button type="button" class="secondary">Удалить</button>`;
       li.querySelector("button").addEventListener("click", () => {
@@ -248,7 +250,7 @@ function renderFiles() {
     state.refUrls.forEach((u, idx) => {
       const li = document.createElement("li");
       li.innerHTML = `
-        <div class="thumb"><img src="${u}" onerror="this.src='';this.parentNode.textContent='URL';"/></div>
+        <div class="thumb filled"><img src="${u}" onerror="this.src='';this.parentNode.textContent='URL';"/></div>
         <div class="meta">${escapeHtml(u)}</div>
         <button type="button" class="secondary">Удалить</button>`;
       li.querySelector("button").addEventListener("click", () => {
@@ -261,7 +263,7 @@ function renderFiles() {
       const li = document.createElement("li");
       const url = URL.createObjectURL(f);
       li.innerHTML = `
-        <div class="thumb"><img src="${url}" /></div>
+        <div class="thumb filled"><img src="${url}" /></div>
         <div class="meta">${escapeHtml(f.name)}</div>
         <button type="button" class="secondary">Удалить</button>`;
       li.querySelector("button").addEventListener("click", () => {
@@ -374,44 +376,33 @@ async function onSubmit(e){
   }
 }
 
-// Upload pending Files to proxy to get public URLs (transfer.sh). Do nothing for existing URLs.
+// Convert selected Files to base64 data URLs so they can be sent directly
+async function fileToDataURL(file){
+  const buf = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buf);
+  bytes.forEach(b => binary += String.fromCharCode(b));
+  return `data:${file.type};base64,${btoa(binary)}`;
+}
+
 async function ensurePublicUrls(){
-  // Video
   let videoUrl=null;
   if(state.videoFile){
-    const res = await uploadFiles([state.videoFile]);
-    videoUrl = res[0];
+    videoUrl = await fileToDataURL(state.videoFile);
   }
-  // Turbo images
   let imageUrls=[];
   if(state.imageFiles.length){
-    const res = await uploadFiles(state.imageFiles);
-    imageUrls = res;
+    imageUrls = await Promise.all(state.imageFiles.map(fileToDataURL));
   }
-  // Refs
   let refUrls=[];
   if(state.refFiles.length){
-    const res = await uploadFiles(state.refFiles);
-    refUrls = res;
+    refUrls = await Promise.all(state.refFiles.map(fileToDataURL));
   }
   return {
     videoUrl,
     imageUrls,
-    refUrls: [...state.refUrls, ...refUrls], // keep manual URLs + uploaded ones
+    refUrls: [...state.refUrls, ...refUrls],
   };
-}
-
-async function uploadFiles(files){
-  const fd=new FormData();
-  files.forEach(f=> fd.append("files", f, f.name));
-  const r=await fetch("http://localhost:5100/file/upload", { method:"POST", body: fd });
-  if(!r.ok){
-    const t=await r.text().catch(()=> "");
-    throw new Error(`upload HTTP ${r.status} ${t}`);
-  }
-  const j=await r.json();
-  if(Array.isArray(j.urls) && j.urls.length===files.length) return j.urls;
-  throw new Error("Некорректный ответ загрузки: "+JSON.stringify(j));
 }
 
 async function startTask(payload, endpointPath){

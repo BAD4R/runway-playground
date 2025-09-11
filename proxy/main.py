@@ -1,6 +1,5 @@
 # proxy/main.py
-# Flask proxy for Runway API with proper CORS preflight handling, verbose logging,
-# and multi-file upload endpoint for transfer.sh.
+# Flask proxy for Runway API with proper CORS preflight handling and verbose logging.
 # Run:  python main.py
 # Listens: http://localhost:5100
 # Proxies: /api/*  -> https://api.dev.runwayml.com/v1/*
@@ -9,18 +8,22 @@
 # - OPTIONS handled LOCALLY (204) to avoid upstream 401 on CORS preflight
 # - Verbose logging; Authorization redacted in logs
 
-from flask import Flask, request, Response, jsonify, make_response
-from werkzeug.utils import secure_filename
+from flask import Flask, request, Response, jsonify, make_response, send_from_directory
 import requests
 import logging
 import sys
 from datetime import datetime
+from pathlib import Path
+
+from chat_routes import bp as chat_bp
 
 UPSTREAM = "https://api.dev.runwayml.com/v1"
 DEFAULT_API_VERSION = "2024-11-06"
 READ_LOG_BODY_LIMIT = 4096  # bytes
 
 app = Flask(__name__)
+CLIENT_DIR = Path(__file__).resolve().parent.parent / "client"
+app.register_blueprint(chat_bp)
 
 # ---------- Logging ----------
 logger = logging.getLogger("runway_proxy")
@@ -42,6 +45,8 @@ def dump_headers_for_log(headers):
     return {k: (redact_auth(v) if k.lower() == "authorization" else v) for k, v in headers.items()}
 
 def log_request(req):
+    if req.args.get("no_log"):
+        return
     try:
         body = req.get_data(cache=True)
     except Exception:
@@ -58,6 +63,8 @@ def log_request(req):
     )
 
 def log_response(status_code, headers, content):
+    if request.args.get("no_log"):
+        return
     try:
         preview = (content[:READ_LOG_BODY_LIMIT]).decode("utf-8", errors="replace")
     except Exception:
@@ -98,46 +105,6 @@ def _build_upstream_url(path: str) -> str:
     path = path.lstrip("/")
     return f"{UPSTREAM}/{path}"
 
-# ---------- File upload (multi) ----------
-@app.route("/file/upload", methods=["POST", "OPTIONS"])
-def file_upload():
-    """
-    Accepts multipart/form-data:
-      - "files": <file>, "files": <file>, ...
-      or single "file": <file>
-    Uploads each file to transfer.sh with PUT /<filename>.
-    Returns: { "urls": ["https://transfer.sh/<random>/<filename>", ...] }
-    """
-    # CORS preflight locally
-    if request.method == "OPTIONS":
-        resp = make_response("", 204)
-        for k, v in cors_headers().items():
-            resp.headers[k] = v
-        return resp
-
-    files = request.files.getlist("files")
-    if not files:
-        single = request.files.get("file")
-        if single:
-            files = [single]
-    if not files:
-        return jsonify({"error": "no_files", "message": "Provide one or multiple 'files' fields"}), 400
-
-    urls = []
-    for f in files:
-        filename = secure_filename(f.filename or "file.bin")
-        try:
-            # transfer.sh supports PUT to /<filename>; response body is the public URL
-            r = requests.put(f"https://transfer.sh/{filename}", data=f.stream, timeout=120)
-            if r.status_code in (200, 201):
-                urls.append(r.text.strip())
-            else:
-                return jsonify({"error": "upload_failed", "status": r.status_code, "body": r.text[:300]}), 502
-        except requests.RequestException as e:
-            return jsonify({"error": "upload_error", "message": str(e)}), 502
-
-    return jsonify({"urls": urls})
-
 # ---------- Runway proxy ----------
 @app.route("/api/<path:full_path>", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
 def proxy(full_path):
@@ -169,10 +136,12 @@ def proxy(full_path):
 
     method = request.method.upper()
     try:
+        params = dict(request.args)
+        params.pop("no_log", None)
         r = requests.request(
             method=method,
             url=upstream_url,
-            params=request.args,
+            params=params,
             data=(request.get_data() if method not in ("GET", "HEAD", "DELETE") else None),
             headers=headers,
             timeout=120,
@@ -196,9 +165,17 @@ def proxy(full_path):
     # CORS headers added by after_request
     return resp
 
+# ---------- Client files ----------
+@app.route("/", defaults={"path": "index.html"}, methods=["GET"])
+@app.route("/<path:path>", methods=["GET"])
+def client_files(path):
+    target = CLIENT_DIR / path
+    if target.is_dir():
+        path = f"{path.rstrip('/')}/index.html"
+    return send_from_directory(CLIENT_DIR, path)
+
 if __name__ == "__main__":
     logger.info("▶️  Flask proxy listening on http://localhost:5100")
     logger.info("    Forwarding /api/* -> %s/*", UPSTREAM)
-    logger.info("    /file/upload handles multiple files and CORS preflight")
     logger.info("    Client must send Authorization: Bearer <RUNWAY_API_KEY>")
     app.run(host="0.0.0.0", port=5100, debug=False)
