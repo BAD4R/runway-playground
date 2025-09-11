@@ -2,6 +2,10 @@ import { init } from './chat.js';
 import { initHeader } from './header.js';
 import { hidePopups } from './ui.js';
 
+// Base path for proxy API and default Runway API version
+const API_BASE = '/api';
+const API_VERSION = '2024-11-06';
+
 console.log('main.js loaded, initializing');
 initHeader();
 init();
