@@ -9,18 +9,20 @@
 # - OPTIONS handled LOCALLY (204) to avoid upstream 401 on CORS preflight
 # - Verbose logging; Authorization redacted in logs
 
-from flask import Flask, request, Response, jsonify, make_response
+from flask import Flask, request, Response, jsonify, make_response, send_from_directory
 from werkzeug.utils import secure_filename
 import requests
 import logging
 import sys
 from datetime import datetime
+from pathlib import Path
 
 UPSTREAM = "https://api.dev.runwayml.com/v1"
 DEFAULT_API_VERSION = "2024-11-06"
 READ_LOG_BODY_LIMIT = 4096  # bytes
 
 app = Flask(__name__)
+CLIENT_DIR = Path(__file__).resolve().parent.parent / "client"
 
 # ---------- Logging ----------
 logger = logging.getLogger("runway_proxy")
@@ -195,6 +197,15 @@ def proxy(full_path):
     )
     # CORS headers added by after_request
     return resp
+
+# ---------- Client files ----------
+@app.route("/", defaults={"path": "index.html"}, methods=["GET"])
+@app.route("/<path:path>", methods=["GET"])
+def client_files(path):
+    target = CLIENT_DIR / path
+    if target.is_dir():
+        path = f"{path.rstrip('/')}/index.html"
+    return send_from_directory(CLIENT_DIR, path)
 
 if __name__ == "__main__":
     logger.info("▶️  Flask proxy listening on http://localhost:5100")

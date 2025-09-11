@@ -217,7 +217,7 @@ function renderFiles() {
     state.imageUrls.forEach((u, idx) => {
       const li = document.createElement("li");
       li.innerHTML = `
-        <div class="thumb"><img src="${u}" onerror="this.src='';this.parentNode.textContent='URL';"/></div>
+        <div class="thumb filled"><img src="${u}" onerror="this.src='';this.parentNode.textContent='URL';"/></div>
         <div class="meta">${escapeHtml(u)}</div>
         <button type="button" class="secondary">Удалить</button>`;
       li.querySelector("button").addEventListener("click", () => {
@@ -231,7 +231,7 @@ function renderFiles() {
       const li = document.createElement("li");
       const url = URL.createObjectURL(f);
       li.innerHTML = `
-        <div class="thumb"><img src="${url}" /></div>
+        <div class="thumb filled"><img src="${url}" /></div>
         <div class="meta">${escapeHtml(f.name)}</div>
         <button type="button" class="secondary">Удалить</button>`;
       li.querySelector("button").addEventListener("click", () => {
@@ -248,7 +248,7 @@ function renderFiles() {
     state.refUrls.forEach((u, idx) => {
       const li = document.createElement("li");
       li.innerHTML = `
-        <div class="thumb"><img src="${u}" onerror="this.src='';this.parentNode.textContent='URL';"/></div>
+        <div class="thumb filled"><img src="${u}" onerror="this.src='';this.parentNode.textContent='URL';"/></div>
         <div class="meta">${escapeHtml(u)}</div>
         <button type="button" class="secondary">Удалить</button>`;
       li.querySelector("button").addEventListener("click", () => {
@@ -261,7 +261,7 @@ function renderFiles() {
       const li = document.createElement("li");
       const url = URL.createObjectURL(f);
       li.innerHTML = `
-        <div class="thumb"><img src="${url}" /></div>
+        <div class="thumb filled"><img src="${url}" /></div>
         <div class="meta">${escapeHtml(f.name)}</div>
         <button type="button" class="secondary">Удалить</button>`;
       li.querySelector("button").addEventListener("click", () => {
