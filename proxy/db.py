@@ -1,6 +1,5 @@
 import sqlite3
 from pathlib import Path
-
 DB_PATH = Path(__file__).resolve().parent.parent / "chat.db"
 
 
@@ -41,3 +40,4 @@ def init_db():
     """Ensure database file and tables exist."""
     conn = get_conn()
     conn.close()
+

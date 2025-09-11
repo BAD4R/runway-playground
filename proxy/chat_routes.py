@@ -22,6 +22,7 @@ def create_chat():
     data = request.get_json(silent=True) or {}
     name = data.get("name") or "New chat"
     state = json.dumps(data.get("state") or {})
+
     now = _now()
     with get_conn() as conn:
         cur = conn.execute(
