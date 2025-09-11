@@ -1,7 +1,9 @@
+const KEY='RUNWAY_API_KEY';
+
 export function getApiKey(){
-  return localStorage.getItem('RUNWAY_API_KEY') || '';
+  return localStorage.getItem(KEY) || '';
 }
 
 export function setApiKey(k){
-  localStorage.setItem('RUNWAY_API_KEY', k);
+  localStorage.setItem(KEY, k);
 }

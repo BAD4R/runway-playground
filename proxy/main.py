@@ -8,16 +8,7 @@
 # - OPTIONS handled LOCALLY (204) to avoid upstream 401 on CORS preflight
 # - Verbose logging; Authorization redacted in logs
 
-from flask import (
-    Flask,
-    request,
-    Response,
-    jsonify,
-    make_response,
-    send_from_directory,
-    stream_with_context,
-)
-from werkzeug.utils import secure_filename
+from flask import Flask, request, Response, jsonify, make_response, stream_with_context
 
 import requests
 import logging
@@ -25,17 +16,29 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from db import init_db
+from chat_routes import bp as chat_bp
+
+
 UPSTREAM = "https://api.dev.runwayml.com/v1"
 DEFAULT_API_VERSION = "2024-11-06"
 READ_LOG_BODY_LIMIT = 4096  # bytes
 
-app = Flask(__name__)
-CLIENT_DIR = Path(__file__).resolve().parent.parent / "client"
+# Serve client files so index.html can be opened via http://localhost:5100/
+BASE_DIR = Path(__file__).resolve().parents[1]
+app = Flask(
+    __name__,
+    static_folder=str(BASE_DIR / "client"),
+    static_url_path="",
+)
+init_db()
+app.register_blueprint(chat_bp)
 
-# Register local chat storage routes
-from chat_routes import bp as chats_bp
 
-app.register_blueprint(chats_bp)
+@app.route("/")
+def root():
+    return app.send_static_file("index.html")
+
 
 # ---------- Logging ----------
 logger = logging.getLogger("runway_proxy")
@@ -57,6 +60,8 @@ def dump_headers_for_log(headers):
     return {k: (redact_auth(v) if k.lower() == "authorization" else v) for k, v in headers.items()}
 
 def log_request(req):
+    if req.args.get("no_log"):
+        return
     try:
         body = req.get_data(cache=True)
     except Exception:
@@ -73,6 +78,8 @@ def log_request(req):
     )
 
 def log_response(status_code, headers, content):
+    if request.args.get("no_log"):
+        return
     try:
         preview = (content[:READ_LOG_BODY_LIMIT]).decode("utf-8", errors="replace")
     except Exception:
@@ -98,7 +105,6 @@ def cors_headers():
 
 @app.after_request
 def add_cors(resp):
-    # Add CORS headers to every response
     for k, v in cors_headers().items():
         resp.headers[k] = v
     return resp
@@ -118,7 +124,7 @@ def _build_upstream_url(path: str) -> str:
 @app.route("/api/<path:full_path>", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
 def proxy(full_path):
     skip_log = request.args.get("no_log") == "1" or request.headers.get("X-Proxy-No-Log") == "1"
-    # Handle CORS preflight locally
+
     if request.method == "OPTIONS":
         if not skip_log:
             logger.info("Handling CORS preflight locally for /api/%s", full_path)
@@ -127,22 +133,18 @@ def proxy(full_path):
             resp.headers[k] = v
         return resp
 
-    # Log incoming request
+
     if not skip_log:
         log_request(request)
 
     upstream_url = _build_upstream_url(full_path)
 
-    # Prepare headers for upstream
     headers = {}
-    # Authorization from client
     auth = request.headers.get("Authorization", "")
     if auth:
         headers["Authorization"] = auth
-    # X-Runway-Version
     api_ver = request.headers.get("X-Runway-Version", DEFAULT_API_VERSION)
     headers["X-Runway-Version"] = api_ver
-    # Content-Type if present
     if request.headers.get("Content-Type"):
         headers["Content-Type"] = request.headers["Content-Type"]
 

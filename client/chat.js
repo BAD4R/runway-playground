@@ -1,6 +1,6 @@
 import * as api from './api.js';
 import { getApiKey, setApiKey } from './state.js';
-import { positionPopup, hidePopups, togglePopup, showToast } from './ui.js';
+import { positionPopup, hidePopups, togglePopup } from './ui.js';
 
 const log = (...args) => console.log('[chat]', ...args);
 
@@ -16,8 +16,6 @@ let currentFiles = {};
 let currentRatio = null;
 let currentDuration = null;
 let chatColor = '#d946ef';
-let autoOpenAttach = false;
-let droppedInSlot = false;
 
 function withAlpha(hex, alpha){
   const r=parseInt(hex.slice(1,3),16);
@@ -51,7 +49,6 @@ const MODEL_INFO = {
     usage:'Например, "@EiffelTower в стиле @StarryNight"',
     price:'5 ток/720p (0.05$), 8 ток/1080p (0.08$)',
     endpoint:'text_to_image',
-    needsPrompt:true,
     ratios:['1920:1080','1080:1920','1024:1024','1360:768','1080:1080','1168:880','1440:1080','1080:1440','1808:768','2112:912','1280:720','720:1280','720:720','960:720','720:960','1680:720'],
     slots:[{name:'referenceImages',label:'Референсы',help:'до 3 изображений',type:'image',multiple:true,count:3}],
     cost:({ratio})=> (ratio&&ratio.includes('1080')?8:5)
@@ -63,9 +60,8 @@ const MODEL_INFO = {
     usage:'Быстрые черновые картинки',
     price:'2 ток (0.02$)',
     endpoint:'text_to_image',
-    needsPrompt:true,
     ratios:['1280:720','720:1280'],
-    slots:[{name:'referenceImages',label:'Референсы',help:'до 3 изображений',type:'image',multiple:true,count:3,required:true,requiredMsg:'Добавьте хотя-бы 1 референс'}],
+    slots:[{name:'referenceImages',label:'Референсы',help:'до 3 изображений',type:'image',multiple:true,count:3}],
     cost:()=>2
   },
   gen4_turbo:{
@@ -75,10 +71,9 @@ const MODEL_INFO = {
     usage:'Замените видео фон на фон из референса',
     price:'5 ток/сек (0.05$/сек)',
     endpoint:'image_to_video',
-    needsPrompt:true,
     ratios:['1280:720','720:1280','1104:832','832:1104','960:960','1584:672'],
     durations:[5,10],
-    slots:[{name:'promptImage',label:'Изображение',help:'первый кадр',type:'image',count:1,required:true,requiredMsg:'Добавьте изображение'}],
+    slots:[{name:'promptImage',label:'Изображение',help:'первый кадр',type:'image',count:1}],
     cost:({duration=5})=>5*duration
   },
   gen4_aleph:{
@@ -88,9 +83,8 @@ const MODEL_INFO = {
     usage:'Видео по видео с применением стиля',
     price:'15 ток/сек (0.15$/сек)',
     endpoint:'video_to_video',
-    needsPrompt:true,
     ratios:['1280:720','720:1280','1104:832','960:960','832:1104','1584:672','848:480','640:480'],
-    slots:[{name:'videoUri',label:'Видео',help:'исходное видео',type:'video',count:1,required:true,requiredMsg:'Добавьте видео'},{name:'references',label:'Референсы',help:'изображения стиля',type:'image',multiple:true,count:3}],
+    slots:[{name:'videoUri',label:'Видео',help:'исходное видео',type:'video',count:1},{name:'references',label:'Референсы',help:'изображения стиля',type:'image',multiple:true,count:3}],
     cost:({duration=5})=>15*duration
   },
   upscale_v1:{
@@ -100,8 +94,7 @@ const MODEL_INFO = {
     usage:'Улучшение качества готового видео',
     price:'2 ток/сек (0.02$/сек)',
     endpoint:'video_upscale',
-    needsPrompt:false,
-    slots:[{name:'videoUri',label:'Видео',help:'для апскейла',type:'video',count:1,required:true,requiredMsg:'Добавьте видео'}],
+    slots:[{name:'videoUri',label:'Видео',help:'для апскейла',type:'video',count:1}],
     cost:({duration=5})=>2*duration
   },
   act_two:{
@@ -111,9 +104,8 @@ const MODEL_INFO = {
     usage:'Оживите персонажа по эталонному видео',
     price:'5 ток/сек (0.05$/сек)',
     endpoint:'character_performance',
-    needsPrompt:false,
     ratios:['1280:720','720:1280','960:960','1104:832','832:1104','1584:672'],
-    slots:[{name:'character',label:'Персонаж',help:'изображение или видео',type:'image',count:1,required:true,requiredMsg:'Добавьте персонажа'},{name:'reference',label:'Референс',help:'видео движения',type:'video',count:1,required:true,requiredMsg:'Добавьте референс'}],
+    slots:[{name:'character',label:'Персонаж',help:'изображение или видео',type:'image',count:1},{name:'reference',label:'Референс',help:'видео движения',type:'video',count:1}],
     cost:({duration=5})=>5*duration
   },
   veo3:{
@@ -123,10 +115,9 @@ const MODEL_INFO = {
     usage:'Снимите кинематографичный ролик из фото',
     price:'40 ток/сек (0.40$/сек)',
     endpoint:'image_to_video',
-    needsPrompt:true,
     ratios:['1280:720','720:1280'],
     durations:[8],
-    slots:[{name:'promptImage',label:'Изображение',help:'начальный кадр',type:'image',count:1,required:true,requiredMsg:'Добавьте изображение'}],
+    slots:[{name:'promptImage',label:'Изображение',help:'начальный кадр',type:'image',count:1}],
     cost:({duration=8})=>40*duration
   }
 };
@@ -228,7 +219,7 @@ function makeSlot(slotName,index,uri){
     slot.addEventListener('click',()=>openFile(slotName,index));
     slot.addEventListener('dragover',e=>{e.preventDefault();slot.classList.add('dragover');});
     slot.addEventListener('dragleave',()=>slot.classList.remove('dragover'));
-    slot.addEventListener('drop',e=>{e.preventDefault();slot.classList.remove('dragover');droppedInSlot=true;handleFiles(slotName,index,e.dataTransfer.files);});
+    slot.addEventListener('drop',e=>{e.preventDefault();slot.classList.remove('dragover');handleFiles(slotName,index,e.dataTransfer.files);});
   }
   return slot;
 }
@@ -368,32 +359,31 @@ async function loadChats(){
 }
 
 async function selectChat(id){
+  activeChat=id;
+  renderChatList();
   const chat=await api.getChat(id);
+  promptInput.value=chat.state.prompt||'';
   currentModel=chat.state.model||currentModel;
   const info=MODEL_INFO[currentModel];
-  promptInput.value=chat.state.prompt||'';
+  chatColor=info.color;
+  modelBtn.textContent=info.label;
   ratioBtn.style.display = info.ratios ? '' : 'none';
   durationBtn.style.display = info.durations ? '' : 'none';
+  document.documentElement.style.setProperty('--accent', chatColor);
+  document.documentElement.style.setProperty('--accent-bg', withAlpha(chatColor,0.15));
   currentFiles=chat.state.files||{};
   currentRatio=chat.state.ratio||null;
   currentDuration=chat.state.duration||null;
-  modelBtn.textContent=info.label;
+  if(chat.state.color!==chatColor){ chat.state.color=chatColor; await api.updateChat(id,{state:chat.state}); }
   renderAttachMenu();
   renderAttachPreview();
   updateCost();
   updateModelDesc();
   const msgs=await api.listMessages(id);
-  renderMessages(msgs, async ()=>{
-    activeChat=id;
-    chatColor=info.color;
-    document.documentElement.style.setProperty('--accent', chatColor);
-    document.documentElement.style.setProperty('--accent-bg', withAlpha(chatColor,0.15));
-    if(chat.state.color!==chatColor){ chat.state.color=chatColor; await api.updateChat(id,{state:chat.state}); }
-    renderChatList();
-  });
+  renderMessages(msgs);
 }
 
-function renderMessages(msgs, cb){
+function renderMessages(msgs){
   messagesEl.classList.add('fade-out');
   setTimeout(()=>{
     messagesEl.innerHTML='';
@@ -408,10 +398,7 @@ function renderMessages(msgs, cb){
     }
     messagesEl.classList.remove('fade-out');
     messagesEl.classList.add('fade-in');
-    setTimeout(()=>{
-      messagesEl.classList.remove('fade-in');
-      if(cb) cb();
-    },200);
+    setTimeout(()=>messagesEl.classList.remove('fade-in'),200);
   },200);
 }
 
@@ -434,21 +421,18 @@ function createMessageEl(m){
   }
   if(m.attachments){
     m.attachments.forEach(a=>{
-      const box=document.createElement('div');
-      box.className='attachment-box';
       if(typeof a === 'string' && a.startsWith('data:video')){
         const v=document.createElement('video');
         v.src=a; v.controls=true; v.className='attachment';
         v.addEventListener('click',()=>openViewer(a,true));
-        box.appendChild(v);
+        div.appendChild(v);
       }else{
         const img=document.createElement('img');
         img.src=a;
         img.className='attachment';
         img.addEventListener('click',()=>openViewer(a,false));
-        box.appendChild(img);
+        div.appendChild(img);
       }
-      div.appendChild(box);
     });
   }
   if(m.params){
@@ -492,25 +476,15 @@ function updateChatState(){
 function updateCost(){
   const info=MODEL_INFO[currentModel];
   const credits=info.cost({ratio:currentRatio,duration:currentDuration})||0;
-  estCost.textContent=`${credits} токенов ($${(credits/100).toFixed(2)})`;
+  estCost.textContent='$'+(credits/100).toFixed(2);
 }
 
 async function handleSend(){
   const apiKey=getApiKey();
-  if(!apiKey){ showToast('Введите API ключ'); return; }
-  if(!activeChat){ showToast('Нет активного чата'); return; }
+  if(!apiKey){ alert('Введите API ключ'); return; }
+  if(!activeChat){ alert('Нет активного чата'); return; }
   const prompt=promptInput.value.trim();
   const info=MODEL_INFO[currentModel];
-  if(info.needsPrompt && !prompt){ showToast('Введите текстовый промпт'); return; }
-  if(info.slots){
-    for(const slot of info.slots){
-      if(slot.required){
-        const val=currentFiles[slot.name];
-        const exists=slot.multiple ? Array.isArray(val) && val.some(Boolean) : !!val;
-        if(!exists){ showToast(slot.requiredMsg||('Добавьте '+slot.label.toLowerCase())); return; }
-      }
-    }
-  }
   const payload=await buildPayload(currentModel,prompt,currentFiles);
   const userMsg={role:'user',content:prompt,attachments:collectAllFiles()};
   await api.addMessage(activeChat,userMsg);
@@ -620,7 +594,11 @@ export function init(){
     const color=MODEL_INFO[currentModel].color;
     const c=await api.createChat('Новый чат',{color,model:currentModel});
     c.state={color,model:currentModel};
+    chatColor=color;
+    document.documentElement.style.setProperty('--accent', color);
+    document.documentElement.style.setProperty('--accent-bg', withAlpha(color,0.15));
     chats.unshift(c);
+    renderChatList();
     selectChat(c.id);
   });
   modelBtn.addEventListener('click',e=>{
@@ -640,30 +618,6 @@ export function init(){
   sendBtn.addEventListener('click',handleSend);
   balanceEl.addEventListener('click',()=>refreshBalance());
   setInterval(()=>refreshBalance(true),60000);
-
-  document.addEventListener('dragenter',e=>{
-    if(e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')){
-      if(attachMenu.classList.contains('hidden')){
-        renderAttachMenu();
-        togglePopup(attachBtn, attachMenu);
-        autoOpenAttach=true;
-      }
-    }
-  });
-  document.addEventListener('dragleave',e=>{
-    if(autoOpenAttach && e.target===document.body){
-      hidePopups();
-      autoOpenAttach=false;
-    }
-  });
-  document.addEventListener('drop',e=>{
-    if(autoOpenAttach){
-      if(!droppedInSlot) hidePopups();
-      autoOpenAttach=false;
-      droppedInSlot=false;
-    }
-  });
-
   loadChats();
 }
 
