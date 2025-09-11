@@ -18,6 +18,9 @@ from pathlib import Path
 from db import init_db
 from chat_routes import bp as chat_bp
 
+from db import init_db
+from chat_routes import bp as chat_bp
+
 UPSTREAM = "https://api.dev.runwayml.com/v1"
 DEFAULT_API_VERSION = "2024-11-06"
 READ_LOG_BODY_LIMIT = 4096  # bytes
