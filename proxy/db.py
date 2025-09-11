@@ -40,4 +40,3 @@ def init_db():
     """Ensure database file and tables exist."""
     conn = get_conn()
     conn.close()
-

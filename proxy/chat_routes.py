@@ -22,7 +22,6 @@ def create_chat():
     data = request.get_json(silent=True) or {}
     name = data.get("name") or "New chat"
     state = json.dumps(data.get("state") or {})
-
     now = _now()
     with get_conn() as conn:
         cur = conn.execute(
@@ -32,6 +31,50 @@ def create_chat():
         chat_id = cur.lastrowid
         conn.commit()
     return jsonify({"id": chat_id, "name": name, "state": json.loads(state)})
+
+
+@bp.get("/chats/<int:chat_id>")
+def get_chat(chat_id):
+    with get_conn() as conn:
+        row = conn.execute("SELECT id, name, state FROM chats WHERE id=?", (chat_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "not_found"}), 404
+        data = dict(row)
+        try:
+            data["state"] = json.loads(data.get("state") or "{}")
+        except json.JSONDecodeError:
+            data["state"] = {}
+        return jsonify(data)
+
+
+@bp.patch("/chats/<int:chat_id>")
+def update_chat(chat_id):
+    data = request.get_json(silent=True) or {}
+    name = data.get("name")
+    state = data.get("state")
+    now = _now()
+    with get_conn() as conn:
+        if name is not None:
+            conn.execute(
+                "UPDATE chats SET name=?, updated_at=? WHERE id=?",
+                (name, now, chat_id),
+            )
+        if state is not None:
+            conn.execute(
+                "UPDATE chats SET state=?, updated_at=? WHERE id=?",
+                (json.dumps(state), now, chat_id),
+            )
+        conn.commit()
+    return jsonify({"ok": True})
+
+
+@bp.delete("/chats/<int:chat_id>")
+def delete_chat(chat_id):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM messages WHERE chat_id=?", (chat_id,))
+        conn.execute("DELETE FROM chats WHERE id=?", (chat_id,))
+        conn.commit()
+    return ("", 204)
 
 
 @bp.get("/chats/<int:chat_id>/messages")

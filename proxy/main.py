@@ -9,7 +9,6 @@
 # - Verbose logging; Authorization redacted in logs
 
 from flask import Flask, request, Response, jsonify, make_response, stream_with_context
-
 import requests
 import logging
 import sys
@@ -123,7 +122,6 @@ def _build_upstream_url(path: str) -> str:
 @app.route("/api/<path:full_path>", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
 def proxy(full_path):
     skip_log = request.args.get("no_log") == "1" or request.headers.get("X-Proxy-No-Log") == "1"
-
     if request.method == "OPTIONS":
         if not skip_log:
             logger.info("Handling CORS preflight locally for /api/%s", full_path)
@@ -131,7 +129,6 @@ def proxy(full_path):
         for k, v in cors_headers().items():
             resp.headers[k] = v
         return resp
-
 
     if not skip_log:
         log_request(request)
