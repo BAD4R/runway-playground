@@ -8,22 +8,34 @@
 # - OPTIONS handled LOCALLY (204) to avoid upstream 401 on CORS preflight
 # - Verbose logging; Authorization redacted in logs
 
-from flask import Flask, request, Response, jsonify, make_response, send_from_directory
+from flask import Flask, request, Response, jsonify, make_response, stream_with_context
 import requests
 import logging
 import sys
 from datetime import datetime
 from pathlib import Path
 
+from db import init_db
 from chat_routes import bp as chat_bp
 
 UPSTREAM = "https://api.dev.runwayml.com/v1"
 DEFAULT_API_VERSION = "2024-11-06"
 READ_LOG_BODY_LIMIT = 4096  # bytes
 
-app = Flask(__name__)
-CLIENT_DIR = Path(__file__).resolve().parent.parent / "client"
+# Serve client files so index.html can be opened via http://localhost:5100/
+BASE_DIR = Path(__file__).resolve().parents[1]
+app = Flask(
+    __name__,
+    static_folder=str(BASE_DIR / "client"),
+    static_url_path="",
+)
+init_db()
 app.register_blueprint(chat_bp)
+
+
+@app.route("/")
+def root():
+    return app.send_static_file("index.html")
 
 # ---------- Logging ----------
 logger = logging.getLogger("runway_proxy")
@@ -90,7 +102,6 @@ def cors_headers():
 
 @app.after_request
 def add_cors(resp):
-    # Add CORS headers to every response
     for k, v in cors_headers().items():
         resp.headers[k] = v
     return resp
@@ -106,31 +117,29 @@ def _build_upstream_url(path: str) -> str:
     return f"{UPSTREAM}/{path}"
 
 # ---------- Runway proxy ----------
+@app.route("/api", defaults={"full_path": ""}, methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
 @app.route("/api/<path:full_path>", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
 def proxy(full_path):
-    # Handle CORS preflight locally
+    skip_log = request.args.get("no_log") == "1" or request.headers.get("X-Proxy-No-Log") == "1"
     if request.method == "OPTIONS":
-        logger.info("Handling CORS preflight locally for /api/%s", full_path)
+        if not skip_log:
+            logger.info("Handling CORS preflight locally for /api/%s", full_path)
         resp = make_response("", 204)
         for k, v in cors_headers().items():
             resp.headers[k] = v
         return resp
 
-    # Log incoming request
-    log_request(request)
+    if not skip_log:
+        log_request(request)
 
     upstream_url = _build_upstream_url(full_path)
 
-    # Prepare headers for upstream
     headers = {}
-    # Authorization from client
     auth = request.headers.get("Authorization", "")
     if auth:
         headers["Authorization"] = auth
-    # X-Runway-Version
     api_ver = request.headers.get("X-Runway-Version", DEFAULT_API_VERSION)
     headers["X-Runway-Version"] = api_ver
-    # Content-Type if present
     if request.headers.get("Content-Type"):
         headers["Content-Type"] = request.headers["Content-Type"]
 
@@ -145,34 +154,33 @@ def proxy(full_path):
             data=(request.get_data() if method not in ("GET", "HEAD", "DELETE") else None),
             headers=headers,
             timeout=120,
+            stream=True,
         )
     except requests.RequestException as e:
         logger.error("Upstream request error: %s", e)
-        # Build error response with CORS
         resp = jsonify({"error": "proxy_error", "message": str(e)})
         resp.status_code = 502
         return resp
 
-    # Log upstream response
-    log_response(r.status_code, r.headers, r.content or b"")
+    def generate():
+        collected = b""
+        for chunk in r.iter_content(chunk_size=8192):
+            if len(collected) < READ_LOG_BODY_LIMIT:
+                to_take = min(len(chunk), READ_LOG_BODY_LIMIT - len(collected))
+                collected += chunk[:to_take]
+            yield chunk
+        if not skip_log:
+            log_response(r.status_code, r.headers, collected)
 
-    # Build response
     resp = Response(
-        response=r.content,
+        stream_with_context(generate()),
         status=r.status_code,
-        headers={"Content-Type": r.headers.get("Content-Type", "application/octet-stream")},
     )
-    # CORS headers added by after_request
+    if r.headers.get("Content-Type"):
+        resp.headers["Content-Type"] = r.headers["Content-Type"]
+    if r.headers.get("Content-Length"):
+        resp.headers["Content-Length"] = r.headers["Content-Length"]
     return resp
-
-# ---------- Client files ----------
-@app.route("/", defaults={"path": "index.html"}, methods=["GET"])
-@app.route("/<path:path>", methods=["GET"])
-def client_files(path):
-    target = CLIENT_DIR / path
-    if target.is_dir():
-        path = f"{path.rstrip('/')}/index.html"
-    return send_from_directory(CLIENT_DIR, path)
 
 if __name__ == "__main__":
     logger.info("▶️  Flask proxy listening on http://localhost:5100")
