@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ElevenLabs</title>
+  <link rel="stylesheet" href="./style.css" />
+  <script>
+    if (location.protocol === 'file:') {
+      location.href = 'http://localhost:5100/elevenlabs.html';
+    }
+  </script>
+</head>
+<body>
+  <header class="service-header">
+    <div class="service-current" id="serviceSwitch">
+      <img src="./icons/elevenlabs.png" alt="ElevenLabs" id="serviceLogo" />
+      <img src="./icons/chevron-down.svg" alt="more" class="arrow" />
+    </div>
+    <div id="serviceMenu" class="popup static hidden">
+      <a href="./index.html"><img src="./icons/runway.png" alt="Runway" />Runway</a>
+      <a href="./elevenlabs.html"><img src="./icons/elevenlabs.png" alt="ElevenLabs" />ElevenLabs</a>
+    </div>
+  </header>
+  <main class="coming-soon">в разработке</main>
+  <script type="module">
+    import { initHeader } from './header.js';
+    initHeader();
+  </script>
+</body>
+</html>
