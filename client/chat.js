@@ -1,6 +1,6 @@
 import * as api from './api.js';
 import { getApiKey, setApiKey } from './state.js';
-import { positionPopup, hidePopups, togglePopup } from './ui.js';
+import { positionPopup, hidePopups, togglePopup, showToast } from './ui.js';
 
 const log = (...args) => console.log('[chat]', ...args);
 
@@ -49,6 +49,7 @@ const MODEL_INFO = {
     usage:'Например, "@EiffelTower в стиле @StarryNight"',
     price:'5 ток/720p (0.05$), 8 ток/1080p (0.08$)',
     endpoint:'text_to_image',
+    needsPrompt:true,
     ratios:['1920:1080','1080:1920','1024:1024','1360:768','1080:1080','1168:880','1440:1080','1080:1440','1808:768','2112:912','1280:720','720:1280','720:720','960:720','720:960','1680:720'],
     slots:[{name:'referenceImages',label:'Референсы',help:'до 3 изображений',type:'image',multiple:true,count:3}],
     cost:({ratio})=> (ratio&&ratio.includes('1080')?8:5)
@@ -60,8 +61,9 @@ const MODEL_INFO = {
     usage:'Быстрые черновые картинки',
     price:'2 ток (0.02$)',
     endpoint:'text_to_image',
+    needsPrompt:true,
     ratios:['1280:720','720:1280'],
-    slots:[{name:'referenceImages',label:'Референсы',help:'до 3 изображений',type:'image',multiple:true,count:3}],
+    slots:[{name:'referenceImages',label:'Референсы',help:'до 3 изображений',type:'image',multiple:true,count:3,required:true,requiredMsg:'Добавьте хотя-бы 1 референс'}],
     cost:()=>2
   },
   gen4_turbo:{
@@ -71,9 +73,10 @@ const MODEL_INFO = {
     usage:'Замените видео фон на фон из референса',
     price:'5 ток/сек (0.05$/сек)',
     endpoint:'image_to_video',
+    needsPrompt:true,
     ratios:['1280:720','720:1280','1104:832','832:1104','960:960','1584:672'],
     durations:[5,10],
-    slots:[{name:'promptImage',label:'Изображение',help:'первый кадр',type:'image',count:1}],
+    slots:[{name:'promptImage',label:'Изображение',help:'первый кадр',type:'image',count:1,required:true,requiredMsg:'Добавьте изображение'}],
     cost:({duration=5})=>5*duration
   },
   gen4_aleph:{
@@ -83,8 +86,9 @@ const MODEL_INFO = {
     usage:'Видео по видео с применением стиля',
     price:'15 ток/сек (0.15$/сек)',
     endpoint:'video_to_video',
+    needsPrompt:true,
     ratios:['1280:720','720:1280','1104:832','960:960','832:1104','1584:672','848:480','640:480'],
-    slots:[{name:'videoUri',label:'Видео',help:'исходное видео',type:'video',count:1},{name:'references',label:'Референсы',help:'изображения стиля',type:'image',multiple:true,count:3}],
+    slots:[{name:'videoUri',label:'Видео',help:'исходное видео',type:'video',count:1,required:true,requiredMsg:'Добавьте видео'},{name:'references',label:'Референсы',help:'изображения стиля',type:'image',multiple:true,count:3}],
     cost:({duration=5})=>15*duration
   },
   upscale_v1:{
@@ -94,7 +98,8 @@ const MODEL_INFO = {
     usage:'Улучшение качества готового видео',
     price:'2 ток/сек (0.02$/сек)',
     endpoint:'video_upscale',
-    slots:[{name:'videoUri',label:'Видео',help:'для апскейла',type:'video',count:1}],
+    needsPrompt:false,
+    slots:[{name:'videoUri',label:'Видео',help:'для апскейла',type:'video',count:1,required:true,requiredMsg:'Добавьте видео'}],
     cost:({duration=5})=>2*duration
   },
   act_two:{
@@ -104,8 +109,9 @@ const MODEL_INFO = {
     usage:'Оживите персонажа по эталонному видео',
     price:'5 ток/сек (0.05$/сек)',
     endpoint:'character_performance',
+    needsPrompt:false,
     ratios:['1280:720','720:1280','960:960','1104:832','832:1104','1584:672'],
-    slots:[{name:'character',label:'Персонаж',help:'изображение или видео',type:'image',count:1},{name:'reference',label:'Референс',help:'видео движения',type:'video',count:1}],
+    slots:[{name:'character',label:'Персонаж',help:'изображение или видео',type:'image',count:1,required:true,requiredMsg:'Добавьте персонажа'},{name:'reference',label:'Референс',help:'видео движения',type:'video',count:1,required:true,requiredMsg:'Добавьте референс'}],
     cost:({duration=5})=>5*duration
   },
   veo3:{
@@ -115,9 +121,10 @@ const MODEL_INFO = {
     usage:'Снимите кинематографичный ролик из фото',
     price:'40 ток/сек (0.40$/сек)',
     endpoint:'image_to_video',
+    needsPrompt:true,
     ratios:['1280:720','720:1280'],
     durations:[8],
-    slots:[{name:'promptImage',label:'Изображение',help:'начальный кадр',type:'image',count:1}],
+    slots:[{name:'promptImage',label:'Изображение',help:'начальный кадр',type:'image',count:1,required:true,requiredMsg:'Добавьте изображение'}],
     cost:({duration=8})=>40*duration
   }
 };
@@ -421,18 +428,21 @@ function createMessageEl(m){
   }
   if(m.attachments){
     m.attachments.forEach(a=>{
+      const box=document.createElement('div');
+      box.className='attachment-box';
       if(typeof a === 'string' && a.startsWith('data:video')){
         const v=document.createElement('video');
         v.src=a; v.controls=true; v.className='attachment';
         v.addEventListener('click',()=>openViewer(a,true));
-        div.appendChild(v);
+        box.appendChild(v);
       }else{
         const img=document.createElement('img');
         img.src=a;
         img.className='attachment';
         img.addEventListener('click',()=>openViewer(a,false));
-        div.appendChild(img);
+        box.appendChild(img);
       }
+      div.appendChild(box);
     });
   }
   if(m.params){
@@ -481,10 +491,20 @@ function updateCost(){
 
 async function handleSend(){
   const apiKey=getApiKey();
-  if(!apiKey){ alert('Введите API ключ'); return; }
-  if(!activeChat){ alert('Нет активного чата'); return; }
+  if(!apiKey){ showToast('Введите API ключ'); return; }
+  if(!activeChat){ showToast('Нет активного чата'); return; }
   const prompt=promptInput.value.trim();
   const info=MODEL_INFO[currentModel];
+  if(info.needsPrompt && !prompt){ showToast('Введите текстовый промпт'); return; }
+  if(info.slots){
+    for(const slot of info.slots){
+      if(slot.required){
+        const val=currentFiles[slot.name];
+        const exists=slot.multiple ? Array.isArray(val) && val.some(Boolean) : !!val;
+        if(!exists){ showToast(slot.requiredMsg||('Добавьте '+slot.label.toLowerCase())); return; }
+      }
+    }
+  }
   const payload=await buildPayload(currentModel,prompt,currentFiles);
   const userMsg={role:'user',content:prompt,attachments:collectAllFiles()};
   await api.addMessage(activeChat,userMsg);
