@@ -3,131 +3,58 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Runway API Playground — gen4_aleph</title>
+  <title>Runway Chat</title>
   <link rel="stylesheet" href="./style.css" />
+  <script>
+    if (location.protocol === 'file:') {
+      location.href = 'http://localhost:5100/';
+    }
+  </script>
 </head>
 <body>
-  <header class="app-header">
-    <h1>Runway API Playground</h1>
-    <div class="credits-box">
-      <div>
-        <label for="apiKey">API key:</label>
-        <input id="apiKey" type="password" placeholder="RUNWAYML_API_SECRET" />
-        <button id="saveKeyBtn" title="Сохранить ключ в браузере">Сохранить</button>
-      </div>
-      <div class="balance">
-        <span>Баланс: <strong id="balanceCredits">—</strong> кредитов</span>
-        <span class="muted">(≈ $<span id="balanceUSD">—</span>)</span>
-        <button id="refreshBalanceBtn" class="linklike">Обновить</button>
-      </div>
-      <div class="balance-note">Баланс обновляется раз в минуту и после каждой генерации.</div>
+  <header class="service-header">
+    <div class="service-current" id="serviceSwitch">
+      <img src="./icons/recraft.png" alt="Recraft" id="serviceLogo" />
+      <img src="./icons/chevron-down.svg" alt="more" class="arrow" />
+    </div>
+    <div id="serviceMenu" class="popup static hidden">
+      <a href="./index.html"><img src="./icons/recraft.png" alt="Recraft" />Recraft</a>
+      <a href="./elevenlabs.html"><img src="./icons/elevenlabs.png" alt="ElevenLabs" />ElevenLabs</a>
     </div>
   </header>
-
-  <main>
-    <section class="panel">
-      <h2>Параметры запроса</h2>
-      <form id="genForm">
-        <div class="grid">
-          <label>Модель
-            <select id="model">
-              <option value="gen4_aleph" selected>gen4_aleph (видео→видео)</option>
-              <option value="gen4_turbo">gen4_turbo (картинка→видео)</option>
-              <option value="gen4_image">gen4_image (текст→картинка)</option>
-            </select>
-          </label>
-
-          <label id="ratioLabel">Соотношение сторон
-            <select id="ratio">
-              <option value="1280:720">16:9 — 1280×720</option>
-              <option value="720:1280">9:16 — 720×1280</option>
-              <option value="1104:832">4:3 — 1104×832</option>
-              <option value="832:1104">3:4 — 832×1104</option>
-              <option value="960:960">1:1 — 960×960</option>
-              <option value="1584:672">21:9 — 1584×672</option>
-            </select>
-          </label>
-
-          <label id="durationLabel">Длительность
-            <select id="duration">
-              <option value="5" selected>5 сек</option>
-              <option value="10" data-models="gen4_turbo">10 сек (только gen4_turbo)</option>
-            </select>
-          </label>
-
-          <div id="videoDrop" class="dropzone conditional">
-            <div class="dz-header">Видео для Aleph (URL или файл)</div>
-            <input id="videoUrl" type="url" placeholder="https://..." />
-            <div class="dz-area" data-accept="video/*">
-              Перетащите видео сюда или <button type="button" class="linklike" data-action="pick" data-for="videoFile">выберите файл</button>
-              <input id="videoFile" type="file" accept="video/*" hidden />
-            </div>
-            <ul id="videoList" class="filelist"></ul>
-          </div>
-
-          <div id="imageDrop" class="dropzone conditional hidden">
-            <div class="dz-header">Входные изображения для Turbo (URL или файлы)</div>
-            <input id="imageUrlInput" type="url" placeholder="https://... (добавить URL и нажать +)" />
-            <button id="addImageUrlBtn" type="button" class="secondary">+</button>
-            <div class="dz-area" data-accept="image/*">
-              Перетащите изображения сюда или <button type="button" class="linklike" data-action="pick" data-for="imageFile">выберите файлы</button>
-              <input id="imageFile" type="file" accept="image/*" hidden multiple />
-            </div>
-            <ul id="imageList" class="filelist"></ul>
-          </div>
-
-          <label id="promptLabel" class="conditional">Промпт
-            <textarea id="promptText" placeholder="Опишите кадр/правки..."></textarea>
-          </label>
-
-          <div id="refDrop" class="dropzone conditional">
-            <div class="dz-header">Референс‑изображения (необяз.)</div>
-            <input id="refUrlInput" type="url" placeholder="https://... (добавить URL и нажать +)" />
-            <button id="addRefUrlBtn" type="button" class="secondary">+</button>
-            <div class="dz-area" data-accept="image/*">
-              Перетащите изображения сюда или <button type="button" class="linklike" data-action="pick" data-for="refFile">выберите файлы</button>
-              <input id="refFile" type="file" accept="image/*" hidden multiple />
-            </div>
-            <ul id="refList" class="filelist"></ul>
-            <small class="hint">Входные изображения (для Turbo) используются как исходный кадр для анимации. Референсы — для передачи стиля/условного контроля. Это разные роли.</small>
-          </div>
-
-          <label id="seedLabel">Seed (опц.)
-            <input id="seed" type="number" step="1" placeholder="например 42" />
-          </label>
-        </div>
-
-        <div class="estimate">
-          <span>Оценка стоимости: <strong id="estCredits">—</strong> кредитов</span>
-          <span class="muted">(≈ $<span id="estUSD">—</span>)</span>
-        </div>
-
-        <div class="actions">
-          <button id="submitBtn" type="submit">Отправить</button>
-          <button id="cancelBtn" type="button" class="secondary" disabled>Отменить задачу</button>
-        </div>
-      </form>
-    </section>
-
-    <section class="panel">
-      <h2>Статус запроса</h2>
-      <div class="status-line">
-        <span class="badge" id="statusBadge">нет запроса</span>
-        <span id="taskIdWrap" class="hidden">ID задачи: <code id="taskId">—</code></span>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <button id="newChatBtn" class="new-chat"><img src="./icons/plus.svg" alt="+" />Новый чат</button>
       </div>
-      <pre id="log" class="log"></pre>
-    </section>
-
-    <section class="panel">
-      <h2>Результат</h2>
-      <div id="output"></div>
-    </section>
-  </main>
-
-  <footer class="footer">
-    <span>© Playground для Runway API. Не храните продакшн-ключи в браузере.</span>
-  </footer>
-
-  <script src="./main.js"></script>
+      <ul id="chatList" class="chat-list"></ul>
+      <div class="sidebar-bottom">
+        <input id="apiKey" type="password" placeholder="API key" />
+        <button id="saveKeyBtn">Сохранить</button>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <button id="modelBtn" class="icon-btn model-btn">Модель: <span id="modelLabel"></span></button>
+        <div id="modelMenu" class="popup static hidden"></div>
+        <div class="balance">Кредиты: <span id="balanceCredits">—</span> <button id="refreshBalanceBtn" class="linklike">⟳</button></div>
+      </header>
+      <section id="messages" class="messages"></section>
+      <footer class="composer">
+        <input id="hiddenFile" type="file" hidden />
+        <div id="attachMenu" class="popup static hidden"></div>
+        <div class="prompt-box">
+          <button id="attachBtn" class="icon-btn"><img src="./icons/paperclip.svg" alt="attach" /></button>
+          <textarea id="promptInput" rows="1" placeholder="Введите промпт..."></textarea>
+          <button id="ratioBtn" class="icon-btn"><img src="./icons/crop.svg" alt="ratio" /></button>
+          <button id="durationBtn" class="icon-btn"><img src="./icons/timer.svg" alt="duration" /></button>
+        </div>
+        <div id="attachPreview" class="attach-preview"></div>
+        <button id="sendBtn" class="send-btn"><img src="./icons/send.svg" alt="send" /></button>
+        <div id="estCost" class="estimate"></div>
+      </footer>
+      </main>
+    </div>
+  <script type="module" src="./main.js"></script>
 </body>
 </html>
