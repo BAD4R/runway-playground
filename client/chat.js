@@ -492,7 +492,7 @@ function updateChatState(){
 function updateCost(){
   const info=MODEL_INFO[currentModel];
   const credits=info.cost({ratio:currentRatio,duration:currentDuration})||0;
-  estCost.textContent='$'+(credits/100).toFixed(2);
+  estCost.textContent=`${credits} токенов ($${(credits/100).toFixed(2)})`;
 }
 
 async function handleSend(){

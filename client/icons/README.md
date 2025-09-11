@@ -10,7 +10,7 @@ Add SVG files with the following names:
 - ellipsis.svg
 - trash.svg
 - chevron-down.svg
-- runway.png
-- elevenlabs.png
+- runway.svg
+- elevenlabs.svg
 - gear.svg
 - info.svg
