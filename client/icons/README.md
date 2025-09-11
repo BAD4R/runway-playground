@@ -10,6 +10,5 @@ Add SVG files with the following names:
 - ellipsis.svg
 - trash.svg
 - chevron-down.svg
-- recraft.png
+- runway.png
 - elevenlabs.png
-
