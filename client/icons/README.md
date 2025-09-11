@@ -13,3 +13,4 @@ Add SVG files with the following names:
 - runway.png
 - elevenlabs.png
 - gear.svg
+- info.svg

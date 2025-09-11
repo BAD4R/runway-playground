@@ -66,6 +66,13 @@ html,body{
 .message{max-width:80%;padding:8px 12px;border-radius:12px;line-height:1.4;animation:fadeIn .2s ease;}
 .message.user{align-self:flex-end;background:var(--accent-bg);color:#222;}
 .message.assistant{align-self:flex-start;background:#f2f2f2;}
+.msg-header{display:flex;align-items:center;margin-bottom:4px;}
+.status{display:inline-block;padding:2px 6px;border-radius:4px;font-size:12px;color:#fff;}
+.status.sending{background:#60a5fa;}
+.status.processing{background:#fbbf24;color:#000;}
+.status.error{background:#f87171;}
+.status.done{background:#4ade80;}
+.meta{font-size:12px;color:#555;margin-top:4px;}
 
 /* ----- Composer ----- */
 
@@ -127,3 +134,12 @@ html,body{
 .modal.hidden{display:none;}
 .modal-content{background:#fff;padding:20px;border-radius:8px;display:flex;flex-direction:column;gap:12px;}
 .modal img,.modal video{max-width:90vw;max-height:90vh;border-radius:8px;}
+#messages.fade-out{opacity:0;transition:opacity .2s;}
+#messages.fade-in{opacity:1;transition:opacity .2s;}
+
+.info-icon{margin-left:4px;display:inline-flex;align-items:center;width:14px;height:14px;}
+.info-icon img{width:14px;height:14px;filter:brightness(0) invert(.4);}
+.popup.model-info{max-width:220px;}
+.popup.model-info p{margin:0;font-size:13px;}
+.popup.model-info .usage{color:#555;font-size:12px;}
+.popup.model-info .price{font-weight:600;}

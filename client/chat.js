@@ -46,6 +46,8 @@ const MODEL_INFO = {
     label:'Gen4 Image',
     color:'#d946ef',
     desc:'Генерация изображений по тексту и референсам.',
+    usage:'Например, "@EiffelTower в стиле @StarryNight"',
+    price:'5 ток/720p (0.05$), 8 ток/1080p (0.08$)',
     endpoint:'text_to_image',
     ratios:['1920:1080','1080:1920','1024:1024','1360:768','1080:1080','1168:880','1440:1080','1080:1440','1808:768','2112:912','1280:720','720:1280','720:720','960:720','720:960','1680:720'],
     slots:[{name:'referenceImages',label:'Референсы',help:'до 3 изображений',type:'image',multiple:true,count:3}],
@@ -55,6 +57,8 @@ const MODEL_INFO = {
     label:'Gen4 Image Turbo',
     color:'#6366f1',
     desc:'Быстрая генерация изображений.',
+    usage:'Быстрые черновые картинки',
+    price:'2 ток (0.02$)',
     endpoint:'text_to_image',
     ratios:['1280:720','720:1280'],
     slots:[{name:'referenceImages',label:'Референсы',help:'до 3 изображений',type:'image',multiple:true,count:3}],
@@ -64,6 +68,8 @@ const MODEL_INFO = {
     label:'Gen4 Turbo',
     color:'#0ea5e9',
     desc:'Создание короткого видео по изображению и тексту.',
+    usage:'Замените видео фон на фон из референса',
+    price:'5 ток/сек (0.05$/сек)',
     endpoint:'image_to_video',
     ratios:['1280:720','720:1280','1104:832','832:1104','960:960','1584:672'],
     durations:[5,10],
@@ -74,6 +80,8 @@ const MODEL_INFO = {
     label:'Gen4 Aleph',
     color:'#22c55e',
     desc:'Преобразование видео с учётом референсов.',
+    usage:'Видео по видео с применением стиля',
+    price:'15 ток/сек (0.15$/сек)',
     endpoint:'video_to_video',
     ratios:['1280:720','720:1280','1104:832','960:960','832:1104','1584:672','848:480','640:480'],
     slots:[{name:'videoUri',label:'Видео',help:'исходное видео',type:'video',count:1},{name:'references',label:'Референсы',help:'изображения стиля',type:'image',multiple:true,count:3}],
@@ -83,6 +91,8 @@ const MODEL_INFO = {
     label:'Upscale v1',
     color:'#f97316',
     desc:'Апскейл видео до 4K.',
+    usage:'Улучшение качества готового видео',
+    price:'2 ток/сек (0.02$/сек)',
     endpoint:'video_upscale',
     slots:[{name:'videoUri',label:'Видео',help:'для апскейла',type:'video',count:1}],
     cost:({duration=5})=>2*duration
@@ -91,6 +101,8 @@ const MODEL_INFO = {
     label:'Act Two',
     color:'#eab308',
     desc:'Анимация персонажа по движению актёра.',
+    usage:'Оживите персонажа по эталонному видео',
+    price:'5 ток/сек (0.05$/сек)',
     endpoint:'character_performance',
     ratios:['1280:720','720:1280','960:960','1104:832','832:1104','1584:672'],
     slots:[{name:'character',label:'Персонаж',help:'изображение или видео',type:'image',count:1},{name:'reference',label:'Референс',help:'видео движения',type:'video',count:1}],
@@ -100,6 +112,8 @@ const MODEL_INFO = {
     label:'Veo3',
     color:'#14b8a6',
     desc:'Высококачественное видео из изображения.',
+    usage:'Снимите кинематографичный ролик из фото',
+    price:'40 ток/сек (0.40$/сек)',
     endpoint:'image_to_video',
     ratios:['1280:720','720:1280'],
     durations:[8],
@@ -114,8 +128,27 @@ function populateModelMenu(){
     const btn=document.createElement('button');
     btn.textContent=MODEL_INFO[m].label;
     btn.addEventListener('click',()=>{selectModel(m);hidePopups();});
+    const infoIcon=document.createElement('span');
+    infoIcon.className='info-icon';
+    infoIcon.innerHTML='<img src="./icons/info.svg" alt="info" />';
+    attachModelInfo(infoIcon,m);
+    btn.appendChild(infoIcon);
     modelMenu.appendChild(btn);
   });
+}
+
+function attachModelInfo(el,key){
+  let timer,popup;
+  const show=()=>{
+    const info=MODEL_INFO[key];
+    popup=document.createElement('div');
+    popup.className='popup model-info';
+    popup.innerHTML=`<p>${info.desc}</p><p class="usage">${info.usage}</p><p class="price">${info.price}</p>`;
+    document.body.appendChild(popup);
+    positionPopup(el,popup);
+  };
+  el.addEventListener('mouseenter',()=>{timer=setTimeout(show,300);});
+  el.addEventListener('mouseleave',()=>{clearTimeout(timer); if(popup){popup.remove(); popup=null;}});
 }
 
 function selectModel(m){
@@ -165,9 +198,16 @@ function makeSlot(slotName,index,uri){
   slot.dataset.slot=slotName;
   slot.dataset.index=index;
   if(uri){
-    const img=document.createElement('img');
-    img.src=uri;
-    slot.appendChild(img);
+    let el;
+    if(uri.startsWith('data:video')){
+      el=document.createElement('video');
+      el.src=uri; el.muted=true; el.loop=true; el.play();
+    }else{
+      el=document.createElement('img');
+      el.src=uri;
+    }
+    el.addEventListener('click',()=>openViewer(uri,uri.startsWith('data:video')));
+    slot.appendChild(el);
     const rm=document.createElement('button');
     rm.className='remove';
     rm.textContent='×';
@@ -344,31 +384,40 @@ async function selectChat(id){
 }
 
 function renderMessages(msgs){
-  messagesEl.innerHTML='';
-  if(msgs.length===0){
-    const d=document.createElement('div');
-    d.className='model-desc';
-    d.textContent=MODEL_INFO[currentModel].desc;
-    messagesEl.appendChild(d);
-  }else{
-    msgs.forEach(m=>messagesEl.appendChild(createMessageEl(m)));
-    messagesEl.scrollTop=messagesEl.scrollHeight;
-  }
+  messagesEl.classList.add('fade-out');
+  setTimeout(()=>{
+    messagesEl.innerHTML='';
+    if(msgs.length===0){
+      const d=document.createElement('div');
+      d.className='model-desc';
+      d.textContent=MODEL_INFO[currentModel].desc;
+      messagesEl.appendChild(d);
+    }else{
+      msgs.forEach(m=>messagesEl.appendChild(createMessageEl(m)));
+      messagesEl.scrollTop=messagesEl.scrollHeight;
+    }
+    messagesEl.classList.remove('fade-out');
+    messagesEl.classList.add('fade-in');
+    setTimeout(()=>messagesEl.classList.remove('fade-in'),200);
+  },200);
 }
 
 function createMessageEl(m){
   const div=document.createElement('div');
   div.className='message '+m.role;
+  const header=document.createElement('div');
+  header.className='msg-header';
+  if(m.status){
+    const s=document.createElement('span');
+    s.className='status '+statusClass(m.status);
+    s.textContent=m.status;
+    header.appendChild(s);
+  }
+  div.appendChild(header);
   if(m.content){
     const p=document.createElement('p');
     p.textContent=m.content;
     div.appendChild(p);
-  }
-  if(m.status){
-    const s=document.createElement('span');
-    s.className='status';
-    s.textContent=m.status;
-    div.appendChild(s);
   }
   if(m.attachments){
     m.attachments.forEach(a=>{
@@ -386,7 +435,37 @@ function createMessageEl(m){
       }
     });
   }
+  if(m.params){
+    const meta=document.createElement('div');
+    meta.className='meta';
+    meta.textContent=formatMeta(m.params);
+    div.appendChild(meta);
+  }
   return div;
+}
+
+function statusClass(text){
+  if(text.startsWith('отправка')) return 'sending';
+  if(text.startsWith('обработка')) return 'processing';
+  if(text.startsWith('ошибка')) return 'error';
+  if(text.startsWith('готово')) return 'done';
+  return '';
+}
+
+function formatMeta(p){
+  const parts=[p.model];
+  if(p.ratio) parts.push(p.ratio);
+  if(p.duration) parts.push(p.duration+' сек');
+  if(p.credits!=null) parts.push(`${p.credits} ток $${(p.credits/100).toFixed(2)}`);
+  return parts.join(' ');
+}
+
+function setStatus(el,text){
+  const span=el.querySelector('.status');
+  if(span){
+    span.textContent=text;
+    span.className='status '+statusClass(text);
+  }
 }
 
 function updateChatState(){
@@ -412,29 +491,35 @@ async function handleSend(){
   messagesEl.querySelector('.model-desc')?.remove();
   messagesEl.appendChild(createMessageEl(userMsg));
   promptInput.value=''; autoResize(promptInput); currentFiles={}; renderAttachMenu(); renderAttachPreview(); updateChatState();
-  const placeholder={role:'assistant',content:'',status:'Обработка...',attachments:[]};
+  const credits=info.cost({ratio:currentRatio,duration:currentDuration})||0;
+  const params={model:info.label,ratio:currentRatio||info.ratios?.[0],duration:currentDuration,credits};
+  const placeholder={role:'assistant',content:'',status:'отправка',attachments:[],params};
   const placeholderEl=createMessageEl(placeholder);
   messagesEl.appendChild(placeholderEl);
   messagesEl.scrollTop=messagesEl.scrollHeight;
   try{
     const res=await api.callRunway(apiKey,info.endpoint,payload);
+    placeholder.status='обработка';
+    setStatus(placeholderEl,placeholder.status);
     const task=await api.waitForTask(apiKey,res.id,t=>{
       if(t.status){
-        placeholder.status=t.status+(t.progress?` ${t.progress}%`:'' );
-        placeholderEl.querySelector('.status').textContent=placeholder.status;
+        placeholder.status = t.progress ? `обработка ${t.progress}%` : 'обработка';
+        setStatus(placeholderEl,placeholder.status);
       }
     });
     if(task.status==='SUCCEEDED' && task.output){
-      placeholder.status='Готово';
+      placeholder.status='готово';
       placeholder.attachments=task.output;
     }else{
-      placeholder.status='Ошибка';
+      placeholder.status='ошибка';
       placeholder.content='Ошибка генерации';
     }
   }catch(e){
-    placeholder.status='Ошибка';
+    placeholder.status='ошибка';
     placeholder.content=e.message;
   }
+  setStatus(placeholderEl,placeholder.status);
+  await api.addMessage(activeChat,placeholder);
   placeholderEl.replaceWith(createMessageEl(placeholder));
   updateCost();
 }
