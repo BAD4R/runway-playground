@@ -1,6 +1,9 @@
 import * as api from './api.js';
 import { getApiKey, setApiKey } from './state.js';
 
+// Simple logger to track user interactions
+const log = (...args) => console.log('[chat]', ...args);
+
 // DOM nodes are resolved during init so that missing elements do not break script execution
 let modelSelect, chatListEl, newChatBtn, messagesEl, promptInput,
     sendBtn, attachBtn, ratioBtn, durationBtn, fileInput,
@@ -30,11 +33,13 @@ function populateModelSelect(){
     opt.value=m; opt.textContent=m;
     modelSelect.appendChild(opt);
   });
+  log('models populated');
 }
 
 async function loadChats(){
   try{
     chats = await api.listChats();
+    log('chats loaded', chats);
   }catch(e){
     console.error('Failed to load chats', e);
     chats = [];
@@ -59,9 +64,9 @@ function renderChatList(){
     menuBtn.className='menu-btn';
     menuBtn.innerHTML='<img src="./icons/ellipsis.svg" alt="menu" />';
     li.appendChild(menuBtn);
-    menuBtn.addEventListener('click',e=>{e.stopPropagation();showChatMenu(c.id, li);});
+    menuBtn.addEventListener('click',e=>{e.stopPropagation();log('chat menu', c.id);showChatMenu(c.id, li);});
     if(activeChat===c.id) li.classList.add('active');
-    li.addEventListener('click',()=>selectChat(c.id));
+    li.addEventListener('click',()=>{log('select chat', c.id);selectChat(c.id);});
     chatListEl.appendChild(li);
   });
 }
@@ -70,6 +75,7 @@ async function selectChat(id){
   activeChat=id;
   renderChatList();
   const chat=await api.getChat(id);
+  log('chat selected', chat);
   promptInput.value = chat.state.prompt||'';
   modelSelect.value = chat.state.model||'gen4_image';
   currentFiles = chat.state.files||[];
@@ -129,6 +135,7 @@ function renderMessages(msgs){
     messagesEl.appendChild(div);
   });
   messagesEl.scrollTop=messagesEl.scrollHeight;
+  log('messages rendered', msgs.length);
 }
 
 function renderAttachPreview(){
@@ -138,13 +145,14 @@ function renderAttachPreview(){
     img.src=f;
     attachPreview.appendChild(img);
   });
+  log('preview files', currentFiles.length);
 }
 
 async function handleSend(){
+  log('send clicked');
   const apiKey = getApiKey();
   if(!apiKey){ alert('Введите API ключ'); return; }
   if(!activeChat){ alert('Нет активного чата'); return; }
-
   const prompt = promptInput.value.trim();
   if(!prompt && currentFiles.length===0) return;
   const model = modelSelect.value;
@@ -153,13 +161,16 @@ async function handleSend(){
   messagesEl.appendChild(createMessageEl(userMsg));
   messagesEl.scrollTop=messagesEl.scrollHeight;
   const payload = await buildPayload(model, prompt, currentFiles);
+  log('payload', payload);
   try{
     const res = await api.callRunway(apiKey, MODEL_INFO[model].endpoint, payload);
+    log('response', res);
     const out = res.output || [];
     const asMsg = {role:'assistant', content:'', attachments:out};
     await api.addMessage(activeChat, asMsg);
     messagesEl.appendChild(createMessageEl(asMsg));
   }catch(e){
+    log('send error', e);
     const errMsg={role:'assistant', content:'Ошибка: '+e.message};
     await api.addMessage(activeChat, errMsg);
     messagesEl.appendChild(createMessageEl(errMsg));
@@ -205,9 +216,11 @@ async function buildPayload(model, prompt, files){
 
 function handleFileInput(e){
   const files = Array.from(e.target.files);
+  log('file input', files.map(f=>f.name));
   files.forEach(f=>{
     const reader = new FileReader();
     reader.onload = () => {
+      log('file loaded', f.name);
       currentFiles.push(reader.result); updateChatState(); renderAttachPreview();
     };
     reader.readAsDataURL(f);
@@ -219,6 +232,7 @@ function updateChatState(){
   if(!activeChat) return;
   const model=modelSelect.value;
   const prompt=promptInput.value;
+  log('state update', {model,prompt,files:currentFiles.length,ratio:currentRatio,duration:currentDuration});
   api.updateChat(activeChat,{state:{model,prompt,files:currentFiles,ratio:currentRatio,duration:currentDuration}});
 }
 
@@ -227,9 +241,11 @@ async function refreshBalance(silent=false){
   if(!key) return;
   const j=await api.fetchBalance(key, silent);
   if(j && typeof j.creditBalance==='number') balanceEl.textContent=j.creditBalance;
+  if(!silent) log('balance fetched', j);
 }
 
 export function init(){
+  log('init start');
   // Resolve DOM nodes dynamically
   modelSelect = document.getElementById('modelSelect');
   chatListEl = document.getElementById('chatList');
@@ -255,14 +271,15 @@ export function init(){
   populateModelSelect();
   apiKeyInput.value = getApiKey();
   if(apiKeyInput.value) refreshBalance(true);
-  saveKeyBtn.addEventListener('click',()=>{ setApiKey(apiKeyInput.value.trim()); refreshBalance(); });
-  newChatBtn.addEventListener('click', async ()=>{ const c=await api.createChat('Новый чат'); chats.unshift(c); renderChatList(); selectChat(c.id); });
+  saveKeyBtn.addEventListener('click',()=>{ log('save key'); setApiKey(apiKeyInput.value.trim()); refreshBalance(); });
+  newChatBtn.addEventListener('click', async ()=>{ log('new chat'); const c=await api.createChat('Новый чат'); chats.unshift(c); renderChatList(); selectChat(c.id); });
   sendBtn.addEventListener('click', handleSend);
-  promptInput.addEventListener('input', updateChatState);
-  modelSelect.addEventListener('change', ()=>{ currentRatio=null; currentDuration=null; updateChatState(); });
-  attachBtn.addEventListener('click',()=>fileInput.click());
+  promptInput.addEventListener('input', ()=>{ log('prompt input'); updateChatState(); });
+  modelSelect.addEventListener('change', ()=>{ log('model change', modelSelect.value); currentRatio=null; currentDuration=null; updateChatState(); });
+  attachBtn.addEventListener('click',()=>{ log('attach click'); fileInput.click(); });
   fileInput.addEventListener('change', handleFileInput);
   ratioBtn.addEventListener('click',()=>{
+    log('ratio click');
     const info=MODEL_INFO[modelSelect.value];
     const opts=info.ratios||[];
     if(opts.length===0) return;
@@ -270,13 +287,15 @@ export function init(){
     if(r){ currentRatio=r; updateChatState(); }
   });
   durationBtn.addEventListener('click',()=>{
+    log('duration click');
     const info=MODEL_INFO[modelSelect.value];
     const opts=info.durations||[];
     if(opts.length===0) return;
     const d=prompt('Длительность (сек): '+opts.join(', '), currentDuration||opts[0]);
     if(d){ currentDuration=parseInt(d,10); updateChatState(); }
   });
-  refreshBalanceBtn.addEventListener('click', ()=>refreshBalance());
+  refreshBalanceBtn.addEventListener('click', ()=>{ log('balance refresh'); refreshBalance(); });
   setInterval(()=>refreshBalance(true),60000);
   loadChats();
+  log('init complete');
 }
