@@ -1,6 +1,6 @@
 import * as api from './api.js';
 import { getApiKey, setApiKey } from './state.js';
-import { positionPopup, hidePopups, togglePopup } from './ui.js';
+import { positionPopup, hidePopups, togglePopup, showToast } from './ui.js';
 
 const log = (...args) => console.log('[chat]', ...args);
 
@@ -16,6 +16,7 @@ let currentFiles = {};
 let currentRatio = null;
 let currentDuration = null;
 let chatColor = '#d946ef';
+let autoAttach = false;
 
 function withAlpha(hex, alpha){
   const r=parseInt(hex.slice(1,3),16);
@@ -49,6 +50,7 @@ const MODEL_INFO = {
     usage:'Например, "@EiffelTower в стиле @StarryNight"',
     price:'5 ток/720p (0.05$), 8 ток/1080p (0.08$)',
     endpoint:'text_to_image',
+    prompt:true,
     ratios:['1920:1080','1080:1920','1024:1024','1360:768','1080:1080','1168:880','1440:1080','1080:1440','1808:768','2112:912','1280:720','720:1280','720:720','960:720','720:960','1680:720'],
     slots:[{name:'referenceImages',label:'Референсы',help:'до 3 изображений',type:'image',multiple:true,count:3}],
     cost:({ratio})=> (ratio&&ratio.includes('1080')?8:5)
@@ -60,8 +62,9 @@ const MODEL_INFO = {
     usage:'Быстрые черновые картинки',
     price:'2 ток (0.02$)',
     endpoint:'text_to_image',
+    prompt:true,
     ratios:['1280:720','720:1280'],
-    slots:[{name:'referenceImages',label:'Референсы',help:'до 3 изображений',type:'image',multiple:true,count:3}],
+    slots:[{name:'referenceImages',label:'Референсы',help:'до 3 изображений',type:'image',multiple:true,count:3,required:true}],
     cost:()=>2
   },
   gen4_turbo:{
@@ -71,9 +74,10 @@ const MODEL_INFO = {
     usage:'Замените видео фон на фон из референса',
     price:'5 ток/сек (0.05$/сек)',
     endpoint:'image_to_video',
+    prompt:true,
     ratios:['1280:720','720:1280','1104:832','832:1104','960:960','1584:672'],
     durations:[5,10],
-    slots:[{name:'promptImage',label:'Изображение',help:'первый кадр',type:'image',count:1}],
+    slots:[{name:'promptImage',label:'Изображение',help:'первый кадр',type:'image',count:1,required:true}],
     cost:({duration=5})=>5*duration
   },
   gen4_aleph:{
@@ -83,8 +87,9 @@ const MODEL_INFO = {
     usage:'Видео по видео с применением стиля',
     price:'15 ток/сек (0.15$/сек)',
     endpoint:'video_to_video',
+    prompt:true,
     ratios:['1280:720','720:1280','1104:832','960:960','832:1104','1584:672','848:480','640:480'],
-    slots:[{name:'videoUri',label:'Видео',help:'исходное видео',type:'video',count:1},{name:'references',label:'Референсы',help:'изображения стиля',type:'image',multiple:true,count:3}],
+    slots:[{name:'videoUri',label:'Видео',help:'исходное видео',type:'video',count:1,required:true},{name:'references',label:'Референсы',help:'изображения стиля',type:'image',multiple:true,count:3}],
     cost:({duration=5})=>15*duration
   },
   upscale_v1:{
@@ -94,7 +99,7 @@ const MODEL_INFO = {
     usage:'Улучшение качества готового видео',
     price:'2 ток/сек (0.02$/сек)',
     endpoint:'video_upscale',
-    slots:[{name:'videoUri',label:'Видео',help:'для апскейла',type:'video',count:1}],
+    slots:[{name:'videoUri',label:'Видео',help:'для апскейла',type:'video',count:1,required:true}],
     cost:({duration=5})=>2*duration
   },
   act_two:{
@@ -105,7 +110,7 @@ const MODEL_INFO = {
     price:'5 ток/сек (0.05$/сек)',
     endpoint:'character_performance',
     ratios:['1280:720','720:1280','960:960','1104:832','832:1104','1584:672'],
-    slots:[{name:'character',label:'Персонаж',help:'изображение или видео',type:'image',count:1},{name:'reference',label:'Референс',help:'видео движения',type:'video',count:1}],
+    slots:[{name:'character',label:'Персонаж',help:'изображение или видео',type:'image',count:1,required:true},{name:'reference',label:'Референс',help:'видео движения',type:'video',count:1,required:true}],
     cost:({duration=5})=>5*duration
   },
   veo3:{
@@ -115,9 +120,10 @@ const MODEL_INFO = {
     usage:'Снимите кинематографичный ролик из фото',
     price:'40 ток/сек (0.40$/сек)',
     endpoint:'image_to_video',
+    prompt:true,
     ratios:['1280:720','720:1280'],
     durations:[8],
-    slots:[{name:'promptImage',label:'Изображение',help:'начальный кадр',type:'image',count:1}],
+    slots:[{name:'promptImage',label:'Изображение',help:'начальный кадр',type:'image',count:1,required:true}],
     cost:({duration=8})=>40*duration
   }
 };
@@ -198,6 +204,7 @@ function makeSlot(slotName,index,uri){
   slot.dataset.slot=slotName;
   slot.dataset.index=index;
   if(uri){
+    slot.classList.add('filled');
     let el;
     if(uri.startsWith('data:video')){
       el=document.createElement('video');
@@ -219,7 +226,7 @@ function makeSlot(slotName,index,uri){
     slot.addEventListener('click',()=>openFile(slotName,index));
     slot.addEventListener('dragover',e=>{e.preventDefault();slot.classList.add('dragover');});
     slot.addEventListener('dragleave',()=>slot.classList.remove('dragover'));
-    slot.addEventListener('drop',e=>{e.preventDefault();slot.classList.remove('dragover');handleFiles(slotName,index,e.dataTransfer.files);});
+    slot.addEventListener('drop',e=>{e.preventDefault();slot.classList.remove('dragover'); if(autoAttach) autoAttach=false; handleFiles(slotName,index,e.dataTransfer.files);});
   }
   return slot;
 }
@@ -245,6 +252,7 @@ function handleFiles(slotName,index,files){
     renderAttachMenu();
     renderAttachPreview();
     updateChatState();
+    if(autoAttach) autoAttach=false;
   };
   reader.readAsDataURL(file);
 }
@@ -270,6 +278,7 @@ function renderAttachPreview(){
       if(!uri) return;
       const wrap=document.createElement('div');
       wrap.className='thumb';
+      wrap.style.backgroundImage="url('./images/empty-field-bg.png')";
       let el;
       if(typeof uri==='string' && uri.startsWith('data:video')){
         el=document.createElement('video');
@@ -359,11 +368,21 @@ async function loadChats(){
 }
 
 async function selectChat(id){
-  activeChat=id;
-  renderChatList();
+  if(id===activeChat) return;
   const chat=await api.getChat(id);
+  const msgs=await api.listMessages(id);
   promptInput.value=chat.state.prompt||'';
   currentModel=chat.state.model||currentModel;
+  currentFiles=chat.state.files||{};
+  currentRatio=chat.state.ratio||null;
+  currentDuration=chat.state.duration||null;
+  renderAttachMenu();
+  renderAttachPreview();
+  updateCost();
+  updateModelDesc();
+  renderMessages(msgs);
+
+  activeChat=id;
   const info=MODEL_INFO[currentModel];
   chatColor=info.color;
   modelBtn.textContent=info.label;
@@ -371,16 +390,8 @@ async function selectChat(id){
   durationBtn.style.display = info.durations ? '' : 'none';
   document.documentElement.style.setProperty('--accent', chatColor);
   document.documentElement.style.setProperty('--accent-bg', withAlpha(chatColor,0.15));
-  currentFiles=chat.state.files||{};
-  currentRatio=chat.state.ratio||null;
-  currentDuration=chat.state.duration||null;
-  if(chat.state.color!==chatColor){ chat.state.color=chatColor; await api.updateChat(id,{state:chat.state}); }
-  renderAttachMenu();
-  renderAttachPreview();
-  updateCost();
-  updateModelDesc();
-  const msgs=await api.listMessages(id);
-  renderMessages(msgs);
+  renderChatList();
+  if((chat.state.color||'')!==chatColor){ chat.state.color=chatColor; await api.updateChat(id,{state:chat.state}); }
 }
 
 function renderMessages(msgs){
@@ -421,18 +432,22 @@ function createMessageEl(m){
   }
   if(m.attachments){
     m.attachments.forEach(a=>{
+      const box=document.createElement('div');
+      box.className='attachment-box';
+      box.style.backgroundImage="url('./images/empty-field-bg.png')";
+      let el;
       if(typeof a === 'string' && a.startsWith('data:video')){
-        const v=document.createElement('video');
-        v.src=a; v.controls=true; v.className='attachment';
-        v.addEventListener('click',()=>openViewer(a,true));
-        div.appendChild(v);
+        el=document.createElement('video');
+        el.src=a; el.controls=true;
+        el.addEventListener('click',()=>openViewer(a,true));
       }else{
-        const img=document.createElement('img');
-        img.src=a;
-        img.className='attachment';
-        img.addEventListener('click',()=>openViewer(a,false));
-        div.appendChild(img);
+        el=document.createElement('img');
+        el.src=a;
+        el.addEventListener('click',()=>openViewer(a,false));
       }
+      el.className='attachment';
+      box.appendChild(el);
+      div.appendChild(box);
     });
   }
   if(m.params){
@@ -481,10 +496,20 @@ function updateCost(){
 
 async function handleSend(){
   const apiKey=getApiKey();
-  if(!apiKey){ alert('Введите API ключ'); return; }
-  if(!activeChat){ alert('Нет активного чата'); return; }
+  if(!apiKey){ showToast('Введите API ключ'); return; }
+  if(!activeChat){ showToast('Нет активного чата'); return; }
   const prompt=promptInput.value.trim();
   const info=MODEL_INFO[currentModel];
+  if(info.prompt && !prompt){ showToast('Введите промпт'); return; }
+  if(info.slots){
+    for(const s of info.slots){
+      if(s.required){
+        const val=currentFiles[s.name];
+        const arr=s.multiple? (Array.isArray(val)?val.filter(Boolean):[]) : (val?[val]:[]);
+        if(arr.length===0){ showToast(`Добавьте ${s.label.toLowerCase()}`); return; }
+      }
+    }
+  }
   const payload=await buildPayload(currentModel,prompt,currentFiles);
   const userMsg={role:'user',content:prompt,attachments:collectAllFiles()};
   await api.addMessage(activeChat,userMsg);
@@ -618,6 +643,21 @@ export function init(){
   sendBtn.addEventListener('click',handleSend);
   balanceEl.addEventListener('click',()=>refreshBalance());
   setInterval(()=>refreshBalance(true),60000);
+  window.addEventListener('dragenter',e=>{
+    if(attachMenu.classList.contains('hidden')){
+      renderAttachMenu();
+      positionPopup(attachBtn,attachMenu);
+      attachMenu.classList.remove('hidden');
+      autoAttach=true;
+    }
+  });
+  window.addEventListener('dragover',e=>{e.preventDefault();});
+  window.addEventListener('drop',e=>{
+    e.preventDefault();
+    if(autoAttach){
+      setTimeout(()=>{if(autoAttach){hidePopups(); autoAttach=false;}},0);
+    }
+  });
   loadChats();
 }
 

@@ -32,3 +32,17 @@ export function togglePopup(anchor, popup){
     else popup.remove();
   }
 }
+
+let toastTimer;
+export function showToast(msg){
+  const el=document.getElementById('toast');
+  if(!el) return;
+  el.textContent=msg;
+  el.classList.remove('hidden','hide');
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{
+    el.classList.add('hide');
+    setTimeout(()=>el.classList.add('hidden'),300);
+  },3000);
+}
