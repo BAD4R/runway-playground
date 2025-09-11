@@ -13,6 +13,10 @@ import requests
 import logging
 import sys
 from datetime import datetime
+from pathlib import Path
+
+from db import init_db
+from chat_routes import bp as chat_bp
 
 from db import init_db
 from chat_routes import bp as chat_bp
@@ -21,9 +25,20 @@ UPSTREAM = "https://api.dev.runwayml.com/v1"
 DEFAULT_API_VERSION = "2024-11-06"
 READ_LOG_BODY_LIMIT = 4096  # bytes
 
-app = Flask(__name__)
+# Serve client files so index.html can be opened via http://localhost:5100/
+BASE_DIR = Path(__file__).resolve().parents[1]
+app = Flask(
+    __name__,
+    static_folder=str(BASE_DIR / "client"),
+    static_url_path="",
+)
 init_db()
 app.register_blueprint(chat_bp)
+
+
+@app.route("/")
+def root():
+    return app.send_static_file("index.html")
 
 # ---------- Logging ----------
 logger = logging.getLogger("runway_proxy")
