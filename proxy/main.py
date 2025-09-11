@@ -9,6 +9,7 @@
 # - Verbose logging; Authorization redacted in logs
 
 from flask import Flask, request, Response, jsonify, make_response, stream_with_context
+
 import requests
 import logging
 import sys
@@ -17,6 +18,7 @@ from pathlib import Path
 
 from db import init_db
 from chat_routes import bp as chat_bp
+
 
 UPSTREAM = "https://api.dev.runwayml.com/v1"
 DEFAULT_API_VERSION = "2024-11-06"
@@ -36,6 +38,7 @@ app.register_blueprint(chat_bp)
 @app.route("/")
 def root():
     return app.send_static_file("index.html")
+
 
 # ---------- Logging ----------
 logger = logging.getLogger("runway_proxy")
@@ -121,6 +124,7 @@ def _build_upstream_url(path: str) -> str:
 @app.route("/api/<path:full_path>", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
 def proxy(full_path):
     skip_log = request.args.get("no_log") == "1" or request.headers.get("X-Proxy-No-Log") == "1"
+
     if request.method == "OPTIONS":
         if not skip_log:
             logger.info("Handling CORS preflight locally for /api/%s", full_path)
@@ -128,6 +132,7 @@ def proxy(full_path):
         for k, v in cors_headers().items():
             resp.headers[k] = v
         return resp
+
 
     if not skip_log:
         log_request(request)
@@ -181,6 +186,15 @@ def proxy(full_path):
     if r.headers.get("Content-Length"):
         resp.headers["Content-Length"] = r.headers["Content-Length"]
     return resp
+
+# ---------- Client files ----------
+@app.route("/", defaults={"path": "index.html"}, methods=["GET"])
+@app.route("/<path:path>", methods=["GET"])
+def client_files(path):
+    target = CLIENT_DIR / path
+    if target.is_dir():
+        path = f"{path.rstrip('/')}/index.html"
+    return send_from_directory(CLIENT_DIR, path)
 
 if __name__ == "__main__":
     logger.info("▶️  Flask proxy listening on http://localhost:5100")
