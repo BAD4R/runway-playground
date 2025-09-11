@@ -192,7 +192,6 @@ document.addEventListener('click',e=>{
     hidePopups();
   }
 });
-
 function renderChatList(){
   chatListEl.innerHTML='';
   chats.forEach(c=>{
@@ -217,6 +216,7 @@ function showChatMenu(id, li){
   if(menu){ menu.remove(); return; }
   menu=document.createElement('div');
   menu.className='chat-menu popup';
+
   const rename=document.createElement('button');
   rename.innerHTML='<img src="./icons/pencil.svg" alt="rename" /> Переименовать';
   rename.addEventListener('click',async e=>{
@@ -458,4 +458,5 @@ function showDurationMenu(){
   opts.forEach(d=>{const b=document.createElement('button');b.textContent=d+' сек';b.addEventListener('click',()=>{currentDuration=d;updateChatState();updateCost();hidePopups();});menu.appendChild(b);});
   durationBtn.after(menu); menu.style.right='0';
   document.addEventListener('click',()=>menu.remove(),{once:true});
+
 }
