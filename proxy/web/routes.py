@@ -23,6 +23,9 @@ from services.request_handlers import execute_openai_request_parallel
 from chat_routes import bp as chat_bp
 from db import init_db
 
+# Runway API version header for compatibility
+RUNWAY_API_VERSION = "2024-11-06"
+
 # --- Logging setup ---------------------------------------------------------
 logger = logging.getLogger("runway_proxy")
 if not logger.handlers:
@@ -71,7 +74,10 @@ def _token_refresh_loop():
             try:
                 requests.get(
                     "https://api.runwayml.com/v1/organization",
-                    headers={"Authorization": hdr},
+                    headers={
+                        "Authorization": hdr,
+                        "X-Runway-Version": RUNWAY_API_VERSION,
+                    },
                     timeout=30,
                 )
                 logger.info("Token refresh check succeeded")
