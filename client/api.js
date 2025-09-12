@@ -1,5 +1,8 @@
-const BASE = 'http://localhost:8001';
+const BASE = window.API_BASE || 'http://localhost:8001';
 const API_VERSION = '2024-11-06';
+const RUNWAY_BASE_URL = (typeof window !== 'undefined' && window.RUNWAY_BASE_URL)
+  || (typeof process !== 'undefined' && process.env && process.env.RUNWAY_BASE_URL)
+  || 'https://api.dev.runwayml.com/v1';
 
 async function jsonFetch(url, opts={}){
   const r = await fetch(url, opts);
@@ -64,7 +67,7 @@ export async function callOpenAI(apiKey, body){
 
 // ----- Runway API -----
 export async function callRunway(apiKey, path, body){
-  const r = await fetch(`${BASE}/api/${path}`, {
+  const r = await fetch(`${RUNWAY_BASE_URL}/${path}`, {
     method:'POST',
     headers:{
       'Authorization': `Bearer ${apiKey}`,
@@ -77,8 +80,8 @@ export async function callRunway(apiKey, path, body){
   return r.json();
 }
 
-export async function fetchBalance(apiKey, silent=false){
-  const url = `${BASE}/api/organization` + (silent ? '?no_log=1' : '');
+export async function fetchBalance(apiKey, _silent=false){
+  const url = `${RUNWAY_BASE_URL}/organization`;
   const r = await fetch(url, {
     headers:{
       'Authorization': `Bearer ${apiKey}`,
@@ -90,7 +93,7 @@ export async function fetchBalance(apiKey, silent=false){
 }
 
 export async function getTask(apiKey, id){
-  const r = await fetch(`${BASE}/api/tasks/${id}`, {
+  const r = await fetch(`${RUNWAY_BASE_URL}/tasks/${id}`, {
     headers:{
       'Authorization': `Bearer ${apiKey}`,
       'X-Runway-Version': API_VERSION
