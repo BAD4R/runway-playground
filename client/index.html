@@ -37,17 +37,22 @@
     <main class="main">
       <header class="topbar">
         <button id="modelBtn" class="model-btn"></button>
+        <button id="modeBtn" class="mode-btn">Режим</button>
+        <div id="modeTags" class="mode-tags"></div>
         <div id="modelMenu" class="popup static hidden"></div>
+        <div id="modeMenu" class="popup static hidden"></div>
       </header>
       <section id="messages" class="messages"></section>
       <footer class="composer">
         <input id="hiddenFile" type="file" hidden />
         <div id="attachMenu" class="popup static hidden attach-menu"></div>
+        <div id="replaceMenu" class="popup static hidden replace-menu"></div>
         <div id="attachPreview" class="attach-preview"></div>
         <textarea id="promptInput" rows="1" placeholder="Введите промпт..."></textarea>
         <div class="controls">
           <div class="left">
             <button id="attachBtn" class="icon-btn"><img src="./icons/paperclip.svg" alt="attach" /></button>
+            <button id="openaiBtn" class="icon-btn hidden"><img src="./icons/openai.svg" alt="openai" /></button>
             <button id="ratioBtn" class="icon-btn"><img src="./icons/crop.svg" alt="ratio" /></button>
             <button id="durationBtn" class="icon-btn"><img src="./icons/timer.svg" alt="duration" /></button>
           </div>
@@ -60,9 +65,27 @@
     </main>
   </div>
   <div id="settingsModal" class="modal hidden">
+    <div class="modal-content settings">
+      <div class="tabs">
+        <button data-tab="runway" class="active">Runway</button>
+        <button data-tab="openai">OpenAI</button>
+      </div>
+      <div id="tab-runway" class="tab-content">
+        <label>Runway API Key:<br/><input id="runwayKey" type="password" /></label>
+      </div>
+      <div id="tab-openai" class="tab-content hidden">
+        <label>OpenAI API Key:<br/><input id="openaiKey" type="password" /></label>
+        <div id="openaiTiers" class="tiers"></div>
+      </div>
+      <div class="actions">
+        <button id="saveSettingsBtn">Сохранить</button>
+      </div>
+    </div>
+  </div>
+  <div id="modeSettings" class="modal hidden">
     <div class="modal-content">
-      <label>API ключ:<br/><input id="apiKey" type="password" /></label>
-      <button id="saveKeyBtn">Сохранить</button>
+      <div id="modeSettingsContent"></div>
+      <div class="actions"><button id="modeSave">Сохранить</button><button id="modeCancel">Отмена</button></div>
     </div>
   </div>
   <div id="viewer" class="modal hidden"></div>
