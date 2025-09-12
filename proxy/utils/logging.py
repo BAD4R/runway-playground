@@ -96,11 +96,12 @@ def truncate_url(url: str, max_length: int = 100) -> str:
 
 def log_request_short(method: str, url: str, status_code: int = None, extra: str = ""):
     """Краткое логирование запросов"""
+    logger = logging.getLogger("proxy")
     short_url = truncate_url(url, 80)
     if status_code:
-        log.info(f"📡 {method} {short_url} → {status_code} {extra}")
+        logger.info(f"📡 {method} {short_url} → {status_code} {extra}")
     else:
-        log.info(f"📡 {method} {short_url} {extra}")
+        logger.info(f"📡 {method} {short_url} {extra}")
 
 class ShortURLFilter(logging.Filter):
     def filter(self, record):

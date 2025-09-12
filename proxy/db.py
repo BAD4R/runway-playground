@@ -29,11 +29,18 @@ def get_conn():
                 content TEXT,
                 params TEXT,
                 attachments TEXT,
+                status TEXT,
                 created_at TEXT
             )
             """
         )
         conn.commit()
+    else:
+        # ensure status column exists
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(messages)")]
+        if "status" not in cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN status TEXT")
+            conn.commit()
     return conn
 
 

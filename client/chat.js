@@ -24,6 +24,7 @@ let currentModes = [];
 let modeSettings = {};
 let replaceInputs = {targets:[null,null],reference:null};
 let openaiUsageHistory = [];
+let expandedTextEl = null;
 
 const REPLACE_MODE='Заменить человека на фото';
 
@@ -233,14 +234,12 @@ function renderAttachMenu(){
 
 function renderReplaceMenu(){
   replaceMenu.innerHTML='';
-  const left=document.createElement('div');
-  left.className='replace-col';
-  for(let i=0;i<2;i++) left.appendChild(createReplaceSlot('rp-target',i,replaceInputs.targets[i]));
+  for(let i=0;i<2;i++) replaceMenu.appendChild(createReplaceSlot('rp-target',i,replaceInputs.targets[i]));
   const arrow=document.createElement('img');
   arrow.src='./icons/arrow-right.svg';
   arrow.className='arrow';
-  const right=createReplaceSlot('rp-reference',0,replaceInputs.reference);
-  replaceMenu.append(left,arrow,right);
+  replaceMenu.appendChild(arrow);
+  replaceMenu.appendChild(createReplaceSlot('rp-reference',0,replaceInputs.reference));
 }
 
 function createReplaceSlot(prefix,index,val){
@@ -497,6 +496,7 @@ function renderMessages(msgs){
   messagesEl.classList.add('fade-out');
   setTimeout(()=>{
     messagesEl.innerHTML='';
+    expandedTextEl=null;
     if(msgs.length===0){
       const d=document.createElement('div');
       d.className='model-desc';
@@ -526,10 +526,36 @@ function createMessageEl(m){
   div.appendChild(header);
   if(m.content){
     const p=document.createElement('p');
+    p.className='msg-text';
     p.textContent=m.content;
     div.appendChild(p);
+    if(m.content.length>800){
+      const shortTemp=document.createElement('p');
+      shortTemp.className='msg-text';
+      shortTemp.style.visibility='hidden';
+      shortTemp.style.position='absolute';
+      shortTemp.textContent=m.content.slice(0,800);
+      document.body.appendChild(shortTemp);
+      const collapsed=shortTemp.scrollHeight;
+      document.body.removeChild(shortTemp);
+      const fullTemp=document.createElement('p');
+      fullTemp.className='msg-text';
+      fullTemp.style.visibility='hidden';
+      fullTemp.style.position='absolute';
+      fullTemp.textContent=m.content;
+      document.body.appendChild(fullTemp);
+      const fullH=fullTemp.scrollHeight;
+      document.body.removeChild(fullTemp);
+      p.style.maxHeight=collapsed+'px';
+      p.dataset.collapsedHeight=collapsed;
+      p.dataset.fullHeight=fullH;
+      p.classList.add('collapsible','collapsed');
+      p.addEventListener('click',e=>{e.stopPropagation(); expandText(p);});
+    }
   }
-  if(m.attachments){
+  if(m.attachments && m.attachments.length){
+    const wrap=document.createElement('div');
+    wrap.className='attachments';
     m.attachments.forEach(a=>{
       const box=document.createElement('div');
       box.className='attachment-box';
@@ -552,8 +578,9 @@ function createMessageEl(m){
       dl.className='download-btn';
       dl.innerHTML='<img src="./icons/download.svg" alt="download" />';
       box.appendChild(dl);
-      div.appendChild(box);
+      wrap.appendChild(box);
     });
+    div.appendChild(wrap);
   }
   if(m.params){
     const meta=document.createElement('div');
@@ -581,6 +608,28 @@ function formatMeta(p){
   else if(p.credits!=null) parts.push(`${p.credits} ток $${(p.credits/100).toFixed(2)}`);
   return parts.join(', ');
 }
+
+function expandText(el){
+  if(expandedTextEl && expandedTextEl!==el) collapseText(expandedTextEl);
+  el.classList.remove('collapsed');
+  el.classList.add('expanded');
+  el.style.maxHeight = el.dataset.fullHeight + 'px';
+  expandedTextEl = el;
+}
+
+function collapseText(el){
+  el.classList.remove('expanded');
+  el.classList.add('collapsed');
+  el.style.maxHeight = el.dataset.collapsedHeight + 'px';
+  if(expandedTextEl===el) expandedTextEl=null;
+}
+
+document.addEventListener('click',e=>{
+  if(expandedTextEl){
+    const msg=expandedTextEl.closest('.message');
+    if(!msg || !msg.contains(e.target)) collapseText(expandedTextEl);
+  }
+});
 
 function findOpenAIPrice(model){
   if(openAiPrices[model]) return openAiPrices[model];
@@ -647,7 +696,12 @@ function renderModeMenu(){
 
 function activateMode(m){
   if(m===REPLACE_MODE && !['gen4_image','gen4_image_turbo'].includes(currentModel)) selectModel('gen4_image');
-  if(!currentModes.includes(m)) currentModes.push(m);
+  if(m===REPLACE_MODE){
+    currentModes=[REPLACE_MODE];
+  }else{
+    currentModes=currentModes.filter(x=>x!==REPLACE_MODE);
+    if(!currentModes.includes(m)) currentModes.push(m);
+  }
   renderModeTags();
   updateModeUI();
   updateChatState();
@@ -737,12 +791,15 @@ async function handleReplaceSend(){
   messagesEl.querySelector('.model-desc')?.remove();
   messagesEl.appendChild(createMessageEl(userMsg));
   const placeholder={role:'assistant',content:'',status:'отправка',attachments:[],params:{model,mode:REPLACE_MODE,cost:null}};
+  const saved=await api.addMessage(activeChat,placeholder);
+  placeholder.id=saved.id;
   const placeholderEl=createMessageEl(placeholder);
   messagesEl.appendChild(placeholderEl); messagesEl.scrollTop=messagesEl.scrollHeight;
   try{
     const body={model,input:[{role:'user',content:[{type:'input_text',text:ms.prompt},{type:'input_image',image_url:ref}]}]};
-    placeholder.status='обрабатывается';
+    placeholder.status='обработка';
     setStatus(placeholderEl,placeholder.status);
+    await api.updateMessage(activeChat,placeholder.id,{status:placeholder.status});
     const res=await api.callOpenAI(openaiKey,body);
     placeholder.status='готово';
     const outs=Array.isArray(res?.output)
@@ -773,7 +830,7 @@ async function handleReplaceSend(){
     placeholder.content=e.message;
   }
   setStatus(placeholderEl,placeholder.status);
-  await api.addMessage(activeChat,placeholder);
+  await api.updateMessage(activeChat,placeholder.id,{status:placeholder.status,content:placeholder.content,attachments:placeholder.attachments,params:placeholder.params});
   placeholderEl.replaceWith(createMessageEl(placeholder));
   if(placeholder.status!=='готово') return;
   const apiKey=getRunwayKey();
@@ -783,12 +840,14 @@ async function handleReplaceSend(){
   const credits=info.cost({ratio:currentRatio})||0;
   const params={model:info.label,mode:REPLACE_MODE,ratio:currentRatio||info.ratios?.[0],credits};
   const ph={role:'assistant',content:'',status:'отправка',attachments:[],params};
+  const saved2=await api.addMessage(activeChat,ph);
+  ph.id=saved2.id;
   const phEl=createMessageEl(ph); messagesEl.appendChild(phEl); messagesEl.scrollTop=messagesEl.scrollHeight;
   try{
     const res2=await api.callRunway(apiKey,info.endpoint,payload);
-    ph.status='обработка'; setStatus(phEl,ph.status);
+    ph.status='обработка'; setStatus(phEl,ph.status); await api.updateMessage(activeChat,ph.id,{status:ph.status});
     const task=await api.waitForTask(apiKey,res2.id,t=>{
-      if(t.status){const pct=t.progress!=null?Math.floor(t.progress*100):null;ph.status=pct!=null?`обработка ${pct}%`:'обработка';setStatus(phEl,ph.status);}
+      if(t.status){const pct=t.progress!=null?Math.floor(t.progress*100):null;ph.status=pct!=null?`обработка ${pct}%`:'обработка';setStatus(phEl,ph.status);api.updateMessage(activeChat,ph.id,{status:ph.status});}
     });
     if(task.status==='SUCCEEDED' && task.output){
       ph.status='готово';
@@ -796,7 +855,7 @@ async function handleReplaceSend(){
     }else{ph.status='ошибка';ph.content='Ошибка генерации';}
   }catch(e){ph.status='ошибка';ph.content=e.message;}
   setStatus(phEl,ph.status);
-  await api.addMessage(activeChat,ph);
+  await api.updateMessage(activeChat,ph.id,{status:ph.status,content:ph.content,attachments:ph.attachments,params:ph.params});
   phEl.replaceWith(createMessageEl(ph));
   updateCost();
   refreshBalance();
@@ -831,6 +890,8 @@ async function handleSend(){
   const credits=info.cost({ratio:currentRatio,duration:currentDuration})||0;
   const params={model:info.label,ratio:currentRatio||info.ratios?.[0],duration:currentDuration,credits};
   const placeholder={role:'assistant',content:'',status:'отправка',attachments:[],params};
+  const saved=await api.addMessage(activeChat,placeholder);
+  placeholder.id=saved.id;
   const placeholderEl=createMessageEl(placeholder);
   messagesEl.appendChild(placeholderEl);
   messagesEl.scrollTop=messagesEl.scrollHeight;
@@ -838,11 +899,13 @@ async function handleSend(){
     const res=await api.callRunway(apiKey,info.endpoint,payload);
     placeholder.status='обработка';
     setStatus(placeholderEl,placeholder.status);
+    await api.updateMessage(activeChat,placeholder.id,{status:placeholder.status});
     const task=await api.waitForTask(apiKey,res.id,t=>{
       if(t.status){
         const pct = t.progress!=null ? Math.floor(t.progress*100) : null;
         placeholder.status = pct!=null ? `обработка ${pct}%` : 'обработка';
         setStatus(placeholderEl,placeholder.status);
+        api.updateMessage(activeChat,placeholder.id,{status:placeholder.status});
       }
     });
     if(task.status==='SUCCEEDED' && task.output){
@@ -864,7 +927,7 @@ async function handleSend(){
     placeholder.content=e.message;
   }
   setStatus(placeholderEl,placeholder.status);
-  await api.addMessage(activeChat,placeholder);
+  await api.updateMessage(activeChat,placeholder.id,{status:placeholder.status,content:placeholder.content,attachments:placeholder.attachments,params:placeholder.params});
   placeholderEl.replaceWith(createMessageEl(placeholder));
   updateCost();
   refreshBalance();

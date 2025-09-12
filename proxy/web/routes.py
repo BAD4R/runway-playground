@@ -193,7 +193,7 @@ def delete_chat(chat_id):
 def list_messages(chat_id):
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, role, content, params, attachments, created_at FROM messages WHERE chat_id=? ORDER BY id",
+            "SELECT id, role, content, params, attachments, status, created_at FROM messages WHERE chat_id=? ORDER BY id",
             (chat_id,),
         ).fetchall()
         res = []
@@ -216,15 +216,45 @@ def add_message(chat_id):
     content = data.get("content", "")
     params = json.dumps(data.get("params") or {})
     attachments = json.dumps(data.get("attachments") or [])
+    status = data.get("status")
     now = _now()
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO messages (chat_id, role, content, params, attachments, created_at) VALUES (?,?,?,?,?,?)",
-            (chat_id, role, content, params, attachments, now),
+            "INSERT INTO messages (chat_id, role, content, params, attachments, status, created_at) VALUES (?,?,?,?,?,?,?)",
+            (chat_id, role, content, params, attachments, status, now),
         )
         msg_id = cur.lastrowid
         conn.commit()
     return jsonify({"id": msg_id})
+
+
+@chat_bp.patch("/chats/<int:chat_id>/messages/<int:msg_id>")
+def update_message(chat_id, msg_id):
+    data = request.get_json(silent=True) or {}
+    fields = []
+    values = []
+    if "content" in data:
+        fields.append("content=?")
+        values.append(data["content"])
+    if "status" in data:
+        fields.append("status=?")
+        values.append(data["status"])
+    if "params" in data:
+        fields.append("params=?")
+        values.append(json.dumps(data["params"]))
+    if "attachments" in data:
+        fields.append("attachments=?")
+        values.append(json.dumps(data["attachments"]))
+    if not fields:
+        return jsonify({"ok": True})
+    values.extend([chat_id, msg_id])
+    with get_conn() as conn:
+        conn.execute(
+            f"UPDATE messages SET {', '.join(fields)} WHERE chat_id=? AND id=?",
+            values,
+        )
+        conn.commit()
+    return jsonify({"ok": True})
 
 
 def create_app():
