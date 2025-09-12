@@ -1,4 +1,4 @@
-const BASE = window.API_BASE || 'http://localhost:8001';
+const BASE = window.API_BASE || window.location.origin;
 const API_VERSION = '2024-11-06';
 const RUNWAY_BASE_URL = (typeof window !== 'undefined' && window.RUNWAY_BASE_URL)
   || (typeof process !== 'undefined' && process.env && process.env.RUNWAY_BASE_URL)
