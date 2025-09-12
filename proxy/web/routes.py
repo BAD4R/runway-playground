@@ -7,7 +7,15 @@ import time
 import json
 import os
 from pathlib import Path
-from flask import Flask, request, make_response, send_file, jsonify, send_from_directory
+from flask import (
+    Flask,
+    request,
+    make_response,
+    send_file,
+    jsonify,
+    send_from_directory,
+    Blueprint,
+)
 from flask_cors import CORS
 import requests
 import logging
@@ -21,8 +29,8 @@ from config.settings import get_openai_config
 from services.openai_batcher import OpenAIRequestBatcher
 from services.elevenlabs_manager import VOICE_DEFAULTS, MODEL_VOICE_PARAMS
 from services.request_handlers import execute_openai_request_parallel
-from chat_routes import bp as chat_bp
-from db import init_db
+from db import init_db, get_conn
+from datetime import datetime
 
 RUNWAY_BASE_URL = os.getenv("RUNWAY_BASE_URL", "https://api.dev.runwayml.com/v1").rstrip("/")
 
@@ -94,6 +102,119 @@ threading.Thread(target=_token_refresh_loop, daemon=True).start()
 
 CLIENT_DIR = Path(__file__).resolve().parents[2] / "client"
 openai_request_batcher = OpenAIRequestBatcher()
+
+
+# ----- Local chat storage routes -------------------------------------------
+chat_bp = Blueprint("chats", __name__, url_prefix="/local")
+
+
+def _now():
+    return datetime.utcnow().isoformat() + "Z"
+
+
+@chat_bp.get("/chats")
+def list_chats():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT id, name FROM chats ORDER BY id DESC").fetchall()
+        return jsonify([dict(r) for r in rows])
+
+
+@chat_bp.post("/chats")
+def create_chat():
+    data = request.get_json(silent=True) or {}
+    name = data.get("name") or "New chat"
+    state = json.dumps(data.get("state") or {})
+    now = _now()
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO chats (name, state, created_at, updated_at) VALUES (?,?,?,?)",
+            (name, state, now, now),
+        )
+        chat_id = cur.lastrowid
+        conn.commit()
+    return jsonify({"id": chat_id, "name": name, "state": json.loads(state)})
+
+
+@chat_bp.get("/chats/<int:chat_id>")
+def get_chat(chat_id):
+    with get_conn() as conn:
+        row = conn.execute("SELECT id, name, state FROM chats WHERE id=?", (chat_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "not_found"}), 404
+        data = dict(row)
+        try:
+            data["state"] = json.loads(data.get("state") or "{}")
+        except json.JSONDecodeError:
+            data["state"] = {}
+        return jsonify(data)
+
+
+@chat_bp.patch("/chats/<int:chat_id>")
+def update_chat(chat_id):
+    data = request.get_json(silent=True) or {}
+    name = data.get("name")
+    state = data.get("state")
+    now = _now()
+    with get_conn() as conn:
+        if name is not None:
+            conn.execute(
+                "UPDATE chats SET name=?, updated_at=? WHERE id=?",
+                (name, now, chat_id),
+            )
+        if state is not None:
+            conn.execute(
+                "UPDATE chats SET state=?, updated_at=? WHERE id=?",
+                (json.dumps(state), now, chat_id),
+            )
+        conn.commit()
+    return jsonify({"ok": True})
+
+
+@chat_bp.delete("/chats/<int:chat_id>")
+def delete_chat(chat_id):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM messages WHERE chat_id=?", (chat_id,))
+        conn.execute("DELETE FROM chats WHERE id=?", (chat_id,))
+        conn.commit()
+    return ("", 204)
+
+
+@chat_bp.get("/chats/<int:chat_id>/messages")
+def list_messages(chat_id):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, role, content, params, attachments, created_at FROM messages WHERE chat_id=? ORDER BY id",
+            (chat_id,),
+        ).fetchall()
+        res = []
+        for r in rows:
+            item = dict(r)
+            for f in ("params", "attachments"):
+                if item.get(f):
+                    try:
+                        item[f] = json.loads(item[f])
+                    except json.JSONDecodeError:
+                        item[f] = None
+            res.append(item)
+        return jsonify(res)
+
+
+@chat_bp.post("/chats/<int:chat_id>/messages")
+def add_message(chat_id):
+    data = request.get_json(silent=True) or {}
+    role = data.get("role", "user")
+    content = data.get("content", "")
+    params = json.dumps(data.get("params") or {})
+    attachments = json.dumps(data.get("attachments") or [])
+    now = _now()
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO messages (chat_id, role, content, params, attachments, created_at) VALUES (?,?,?,?,?,?)",
+            (chat_id, role, content, params, attachments, now),
+        )
+        msg_id = cur.lastrowid
+        conn.commit()
+    return jsonify({"id": msg_id})
 
 
 def create_app():
