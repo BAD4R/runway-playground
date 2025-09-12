@@ -848,6 +848,7 @@ async function handleReplaceSend(){
     placeholder.status='ошибка';
     placeholder.content=e.message;
   }
+  placeholder.content=sanitizeText(placeholder.content).slice(0,PROMPT_LIMIT);
   setStatus(placeholderEl,placeholder.status);
   await api.updateMessage(activeChat,placeholder.id,{status:placeholder.status,content:placeholder.content,attachments:placeholder.attachments,params:placeholder.params});
   placeholderEl.replaceWith(createMessageEl(placeholder));
