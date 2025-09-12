@@ -18,13 +18,12 @@ from flask import (
 )
 from flask_cors import CORS
 import requests
-import logging
 import threading
 
 
 import globals as g
 from utils.logger import log, FULL_LOGS, maybe_truncate
-from utils.logging import color_ip
+from utils.logging import color_ip, log_request_short
 from config.settings import get_openai_config
 from services.openai_batcher import OpenAIRequestBatcher
 from services.elevenlabs_manager import VOICE_DEFAULTS, MODEL_VOICE_PARAMS
@@ -38,14 +37,6 @@ RUNWAY_BASE_URL = os.getenv("RUNWAY_BASE_URL", "https://api.dev.runwayml.com/v1"
 def runway_url(path: str) -> str:
     return f"{RUNWAY_BASE_URL}/{path.lstrip('/')}"
 
-
-# --- Logging setup ---------------------------------------------------------
-logger = logging.getLogger("runway_proxy")
-if not logger.handlers:
-    logger.setLevel(logging.INFO)
-    _h = logging.StreamHandler()
-    _h.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
-    logger.addHandler(_h)
 
 # Cache of the latest Authorization header so the proxy can periodically
 # refresh tokens without a new client request.
@@ -67,17 +58,36 @@ def _dump_headers(headers):
 
 
 def _log_request(req):
-    try:
-        body = req.get_data(cache=True)
-    except Exception:
-        body = b""
-    preview = body[:4096].decode("utf-8", errors="replace") if body else ""
-    logger.info("REQ %s %s | headers=%s | body=%s", req.method, req.path, _dump_headers(dict(req.headers)), preview)
+    if FULL_LOGS:
+        try:
+            body = req.get_data(cache=True)
+        except Exception:
+            body = b""
+        preview = body[:4096].decode("utf-8", errors="replace") if body else ""
+        log.info(
+            "REQ %s %s | headers=%s | body=%s",
+            req.method,
+            req.path,
+            _dump_headers(dict(req.headers)),
+            maybe_truncate(preview, 200),
+        )
+    else:
+        log_request_short(req.method, req.path)
 
 
-def _log_response(status, headers, content):
-    preview = content[:4096].decode("utf-8", errors="replace") if content else ""
-    logger.info("RES %s | headers=%s | body=%s", status, _dump_headers(dict(headers)), preview)
+def _log_response(method, path, status, headers, content):
+    if FULL_LOGS:
+        preview = content[:4096].decode("utf-8", errors="replace") if content else ""
+        log.info(
+            "RES %s %s → %s | headers=%s | body=%s",
+            method,
+            path,
+            status,
+            _dump_headers(dict(headers)),
+            maybe_truncate(preview, 200),
+        )
+    else:
+        log_request_short(method, path, status_code=status)
 
 
 def _token_refresh_loop():
@@ -90,9 +100,9 @@ def _token_refresh_loop():
                     headers={"Authorization": hdr},
                     timeout=30,
                 )
-                logger.info("Token refresh check succeeded")
+                log.info("Token refresh check succeeded")
             except requests.RequestException as e:
-                logger.warning("Token refresh failed: %s", e)
+                log.warning("Token refresh failed: %s", e)
         time.sleep(60)
 
 
@@ -183,7 +193,7 @@ def delete_chat(chat_id):
 def list_messages(chat_id):
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, role, content, params, attachments, created_at FROM messages WHERE chat_id=? ORDER BY id",
+            "SELECT id, role, content, params, attachments, status, created_at FROM messages WHERE chat_id=? ORDER BY id",
             (chat_id,),
         ).fetchall()
         res = []
@@ -206,15 +216,45 @@ def add_message(chat_id):
     content = data.get("content", "")
     params = json.dumps(data.get("params") or {})
     attachments = json.dumps(data.get("attachments") or [])
+    status = data.get("status")
     now = _now()
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO messages (chat_id, role, content, params, attachments, created_at) VALUES (?,?,?,?,?,?)",
-            (chat_id, role, content, params, attachments, now),
+            "INSERT INTO messages (chat_id, role, content, params, attachments, status, created_at) VALUES (?,?,?,?,?,?,?)",
+            (chat_id, role, content, params, attachments, status, now),
         )
         msg_id = cur.lastrowid
         conn.commit()
     return jsonify({"id": msg_id})
+
+
+@chat_bp.patch("/chats/<int:chat_id>/messages/<int:msg_id>")
+def update_message(chat_id, msg_id):
+    data = request.get_json(silent=True) or {}
+    fields = []
+    values = []
+    if "content" in data:
+        fields.append("content=?")
+        values.append(data["content"])
+    if "status" in data:
+        fields.append("status=?")
+        values.append(data["status"])
+    if "params" in data:
+        fields.append("params=?")
+        values.append(json.dumps(data["params"]))
+    if "attachments" in data:
+        fields.append("attachments=?")
+        values.append(json.dumps(data["attachments"]))
+    if not fields:
+        return jsonify({"ok": True})
+    values.extend([chat_id, msg_id])
+    with get_conn() as conn:
+        conn.execute(
+            f"UPDATE messages SET {', '.join(fields)} WHERE chat_id=? AND id=?",
+            values,
+        )
+        conn.commit()
+    return jsonify({"ok": True})
 
 
 def create_app():
@@ -306,7 +346,7 @@ def register_routes(app):
             if request.method != "GET" and data is not None:
                 kwargs["json"] = data
             upstream = requests.request(request.method, url, **kwargs)
-            _log_response(upstream.status_code, upstream.headers, upstream.content)
+            _log_response(request.method, request.path, upstream.status_code, upstream.headers, upstream.content)
             resp = make_response(upstream.content, upstream.status_code)
             resp.headers["Content-Type"] = upstream.headers.get("Content-Type", "application/json")
             return add_cors(resp)

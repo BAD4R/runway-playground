@@ -51,6 +51,14 @@ export function addMessage(chatId, msg){
   });
 }
 
+export function updateMessage(chatId, msgId, data){
+  return jsonFetch(`${BASE}/local/chats/${chatId}/messages/${msgId}`, {
+    method:'PATCH',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(data)
+  });
+}
+
 // ----- OpenAI API -----
 export async function callOpenAI(apiKey, body){
   const r = await fetch(`${BASE}/proxy-responses`, {
