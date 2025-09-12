@@ -48,6 +48,20 @@ export function addMessage(chatId, msg){
   });
 }
 
+// ----- OpenAI API -----
+export async function callOpenAI(apiKey, body){
+  const r = await fetch(`${BASE}/proxy-responses`, {
+    method:'POST',
+    headers:{
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  if(!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
 // ----- Runway API -----
 export async function callRunway(apiKey, path, body){
   const r = await fetch(`${BASE}/api/${path}`, {

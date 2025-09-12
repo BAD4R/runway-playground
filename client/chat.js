@@ -5,9 +5,9 @@ import { positionPopup, hidePopups, togglePopup, showToast } from './ui.js';
 const log = (...args) => console.log('[chat]', ...args);
 
 let modelBtn, modelMenu, chatListEl, newChatBtn, messagesEl, promptInput,
-    sendBtn, attachBtn, ratioBtn, durationBtn, hiddenFile,
+    sendBtn, attachBtn, openaiBtn, ratioBtn, durationBtn, hiddenFile,
     runwayKeyInput, openaiKeyInput, openaiTiersEl, saveSettingsBtn, balanceEl,
-    attachPreview, attachMenu, estCost, settingsBtn, settingsModal,
+    attachPreview, attachMenu, replaceMenu, estCost, settingsBtn, settingsModal,
     modeBtn, modeMenu, modeTags, modeSettingsModal, modeSettingsContent,
     modeSaveBtn, modeCancelBtn, viewer;
 
@@ -22,6 +22,9 @@ let autoAttach = false;
 let openAiPrices = {};
 let currentModes = [];
 let modeSettings = {};
+let replaceInputs = {targets:[null,null],reference:null};
+
+const REPLACE_MODE='Заменить человека на фото';
 
 function withAlpha(hex, alpha){
   const r=parseInt(hex.slice(1,3),16);
@@ -39,10 +42,25 @@ function openViewer(src,isVideo){
   viewer.innerHTML='';
   const content=document.createElement('div');
   content.className='modal-content';
-  const el=isVideo?document.createElement('video'):document.createElement('img');
-  el.src=src;
-  if(isVideo) el.controls=true;
-  content.appendChild(el);
+  if(isVideo){
+    const video=document.createElement('video');
+    video.src=src;
+    const controls=document.createElement('div');
+    controls.className='viewer-controls';
+    const play=document.createElement('button');
+    play.textContent='▶';
+    play.addEventListener('click',()=>{if(video.paused){video.play();play.textContent='❚❚';}else{video.pause();play.textContent='▶';}});
+    const range=document.createElement('input');
+    range.type='range';range.min=0;range.max=100;range.value=0;
+    video.addEventListener('timeupdate',()=>{if(video.duration) range.value=video.currentTime/video.duration*100;});
+    range.addEventListener('input',()=>{if(video.duration) video.currentTime=range.value/100*video.duration;});
+    controls.append(play,range);
+    content.append(video,controls);
+  }else{
+    const img=document.createElement('img');
+    img.src=src;
+    content.appendChild(img);
+  }
   viewer.appendChild(content);
   viewer.classList.remove('hidden');
 }
@@ -133,14 +151,20 @@ const MODEL_INFO = {
   }
 };
 
-const AVAILABLE_MODES = ['Комбо','Анализ','Эконом'];
+const AVAILABLE_MODES = [REPLACE_MODE,'Комбо','Анализ','Эконом'];
+const REPLACE_PROMPT_DEFAULT = 'Describe the gender of the person in the photo, their exact pose (clearly for each body part - which body parts are visible and how much of them is within the frame or cut off, the position of each body part - which direction it is turned, how it is tilted, what it is resting on or under), the direction of the head, eyes, and gaze. Describe in detail their clothing (clearly for each element of clothing - which body part it covers and how much, what decorative elements are present on this clothing - in what quantity and where they are located and what they depict such as lace, buttons, straps, tags, patches, prints). Describe the actions the person is performing and in detail every object they are interacting with (whether it is a small item or a large bus). Describe the location where they are situated (what is visible in the background, which specific objects are in which places in the frame), other small details, the shooting parameters, the settings and the position in space of the camera that took the picture, any color filters or special effects if such are present. Do not describe the hairstyle, skin color, or hair color, the parameters of the face or body of the person. Provide the answer as continuous text (without lists, without your own comments, explanations, code, emoticons, special symbols, or words about how you understood my request).';
 
 function populateModelMenu(){
   modelMenu.innerHTML='';
   Object.keys(MODEL_INFO).forEach(m=>{
     const btn=document.createElement('button');
     btn.textContent=MODEL_INFO[m].label;
-    btn.addEventListener('click',()=>{selectModel(m);hidePopups();});
+    const allowed=['gen4_image','gen4_image_turbo'];
+    if(currentModes.includes(REPLACE_MODE) && !allowed.includes(m)){
+      btn.className='disabled';
+    }else{
+      btn.addEventListener('click',()=>{selectModel(m);hidePopups();});
+    }
     const infoIcon=document.createElement('span');
     infoIcon.className='info-icon';
     infoIcon.innerHTML='<img src="./icons/info.svg" alt="info" />';
@@ -179,6 +203,7 @@ function selectModel(m){
   updateCost();
   updateChatState();
   updateModelDesc();
+  updateModeUI();
 }
 
 function renderAttachMenu(){
@@ -203,6 +228,38 @@ function renderAttachMenu(){
     }
     attachMenu.appendChild(cont);
   });
+}
+
+function renderReplaceMenu(){
+  replaceMenu.innerHTML='';
+  const left=document.createElement('div');
+  left.className='replace-col';
+  for(let i=0;i<2;i++) left.appendChild(createReplaceSlot('rp-target',i,replaceInputs.targets[i]));
+  const arrow=document.createElement('img');
+  arrow.src='./icons/arrow-right.svg';
+  arrow.className='arrow';
+  const right=createReplaceSlot('rp-reference',0,replaceInputs.reference);
+  replaceMenu.append(left,arrow,right);
+}
+
+function createReplaceSlot(prefix,index,val){
+  const slot=document.createElement('div');
+  slot.className='replace-slot'+(val?' filled':'');
+  if(val){
+    const img=document.createElement('img');
+    img.src=val; slot.appendChild(img);
+    const rm=document.createElement('button');
+    rm.className='remove'; rm.textContent='×';
+    rm.addEventListener('click',e=>{e.stopPropagation(); if(prefix==='rp-reference') replaceInputs.reference=null; else replaceInputs.targets[index]=null; renderReplaceMenu(); updateChatState();});
+    slot.appendChild(rm);
+  }else{
+    const dz=document.createElement('div'); dz.className='drop-zone'; dz.textContent='+'; slot.appendChild(dz);
+  }
+  slot.addEventListener('click',()=>{hiddenFile.dataset.slot=prefix; hiddenFile.dataset.index=index; hiddenFile.click();});
+  slot.addEventListener('dragover',e=>{e.preventDefault(); slot.classList.add('dragover');});
+  slot.addEventListener('dragleave',()=>slot.classList.remove('dragover'));
+  slot.addEventListener('drop',e=>{e.preventDefault(); slot.classList.remove('dragover'); handleFiles(prefix,index,e.dataTransfer.files);});
+  return slot;
 }
 
 function makeSlot(slotName,index,uri){
@@ -247,6 +304,17 @@ function openFile(slotName,index){
 function handleFiles(slotName,index,files){
   const file=files[0];
   if(!file) return;
+  if(slotName.startsWith('rp-')){
+    const reader=new FileReader();
+    reader.onload=()=>{
+      if(slotName==='rp-reference') replaceInputs.reference=reader.result;
+      else replaceInputs.targets[index]=reader.result;
+      renderReplaceMenu();
+      updateChatState();
+    };
+    reader.readAsDataURL(file);
+    return;
+  }
   const info=MODEL_INFO[currentModel];
   if(file.type.startsWith('video/') && !info.durations){
     const v=document.createElement('video');
@@ -402,12 +470,15 @@ async function selectChat(id){
   currentDuration=chat.state.duration||null;
   currentModes=chat.state.modes||[];
   modeSettings=chat.state.modeSettings||{};
+  replaceInputs=(modeSettings[REPLACE_MODE]?.images)||{targets:[null,null],reference:null};
   renderAttachMenu();
   renderAttachPreview();
+  renderReplaceMenu();
   updateCost();
   updateModelDesc();
   renderMessages(msgs);
   renderModeTags();
+  updateModeUI();
 
   activeChat=id;
   const info=MODEL_INFO[currentModel];
@@ -463,9 +534,9 @@ function createMessageEl(m){
       box.className='attachment-box';
       box.style.backgroundImage="url('./images/empty-field-bg.png')";
       let el;
-      if(typeof a === 'string' && a.startsWith('data:video')){
+      if(typeof a==='string' && (a.startsWith('data:video') || a.endsWith('.mp4'))){
         el=document.createElement('video');
-        el.src=a; el.controls=true;
+        el.src=a; el.muted=true; el.loop=true; el.play();
         el.addEventListener('click',()=>openViewer(a,true));
       }else{
         el=document.createElement('img');
@@ -502,10 +573,20 @@ function statusClass(text){
 
 function formatMeta(p){
   const parts=[p.model];
+  if(p.mode) parts.push(p.mode);
   if(p.ratio) parts.push(p.ratio);
   if(p.duration) parts.push(p.duration+' сек');
-  if(p.credits!=null) parts.push(`${p.credits} ток $${(p.credits/100).toFixed(2)}`);
-  return parts.join(' ');
+  if('cost' in p) parts.push(p.cost==null?'$?.??':`$${p.cost.toFixed(2)}`);
+  else if(p.credits!=null) parts.push(`${p.credits} ток $${(p.credits/100).toFixed(2)}`);
+  return parts.join(', ');
+}
+
+function calcOpenAICost(model,usage){
+  const p=openAiPrices[model];
+  if(!p) return 0;
+  const ic=(usage.input_tokens||0)*(p.input||0)/1e6;
+  const oc=(usage.output_tokens||0)*(p.output||0)/1e6;
+  return ic+oc;
 }
 
 function setStatus(el,text){
@@ -518,6 +599,12 @@ function setStatus(el,text){
 
 function updateChatState(){
   if(!activeChat) return;
+  if(currentModes.includes(REPLACE_MODE)){
+    const ms=modeSettings[REPLACE_MODE]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2};
+    ms.images=replaceInputs;
+    modeSettings[REPLACE_MODE]=ms;
+  }
+
   api.updateChat(activeChat,{state:{model:currentModel,prompt:promptInput.value,files:currentFiles,ratio:currentRatio,duration:currentDuration,color:chatColor,modes:currentModes,modeSettings}});
 }
 
@@ -551,14 +638,17 @@ function renderModeMenu(){
 }
 
 function activateMode(m){
+  if(m===REPLACE_MODE && !['gen4_image','gen4_image_turbo'].includes(currentModel)) selectModel('gen4_image');
   if(!currentModes.includes(m)) currentModes.push(m);
   renderModeTags();
+  updateModeUI();
   updateChatState();
 }
 
 function removeMode(m){
   currentModes=currentModes.filter(x=>x!==m);
   renderModeTags();
+  updateModeUI();
   updateChatState();
 }
 
@@ -577,10 +667,27 @@ function renderModeTags(){
   });
 }
 
+function updateModeUI(){
+  const active=currentModes.includes(REPLACE_MODE);
+  promptInput.disabled=active;
+  promptInput.placeholder=active?`Контролируется режимом "${REPLACE_MODE}"`:'Введите промпт...';
+  attachBtn.classList.toggle('disabled',active);
+  openaiBtn.classList.toggle('hidden',!active);
+  populateModelMenu();
+}
+
 let editingMode=null;
 function openModeSettings(m){
   editingMode=m;
-  modeSettingsContent.innerHTML=`<p>Настройки для ${m}</p>`;
+  if(m===REPLACE_MODE){
+    const ms=modeSettings[m]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2};
+    const tiers=getOpenAITiers();
+    let opts='';
+    for(let i=1;i<=5;i++){opts+=`<option value="${i}" ${ms.tier==i?'selected':''}>Tier ${i} (${tiers[i]})</option>`;}
+    modeSettingsContent.innerHTML=`<p>Описание работы режима - 'Составляет детальное описание референса через ChatGPT и отправляет запрос к Runway для замены личности на фото'</p><label>Промпт:<br/><textarea id="modePrompt" rows="4">${ms.prompt}</textarea></label><label>Тир модели:<br/><select id="modeTier">${opts}</select></label>`;
+  }else{
+    modeSettingsContent.innerHTML=`<p>Настройки для ${m}</p>`;
+  }
   modeSettingsModal.classList.remove('hidden');
 }
 
@@ -607,7 +714,68 @@ function renderOpenAITiers(){
   }
 }
 
+async function handleReplaceSend(){
+  const openaiKey=getOpenAIKey();
+  if(!openaiKey){showToast('Введите OpenAI ключ');return;}
+  if(!activeChat){showToast('Нет активного чата');return;}
+  const ms=modeSettings[REPLACE_MODE]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2,images:replaceInputs};
+  const imgs=ms.images||replaceInputs;
+  if(!(imgs.reference && imgs.targets.some(x=>x))){showToast('Нужен хотя бы один исходник И референс');return;}
+  const tiers=getOpenAITiers();
+  const model=tiers[ms.tier]||tiers[2];
+  const ref=imgs.reference.split(',')[1];
+  const userMsg={role:'user',content:'',attachments:[...imgs.targets.filter(Boolean),imgs.reference]};
+  await api.addMessage(activeChat,userMsg);
+  messagesEl.querySelector('.model-desc')?.remove();
+  messagesEl.appendChild(createMessageEl(userMsg));
+  const placeholder={role:'assistant',content:'',status:'отправка',attachments:[],params:{model,mode:REPLACE_MODE,cost:null}};
+  const placeholderEl=createMessageEl(placeholder);
+  messagesEl.appendChild(placeholderEl); messagesEl.scrollTop=messagesEl.scrollHeight;
+  try{
+    const body={model,input:[{role:'user',content:[{type:'input_text',text:ms.prompt},{type:'input_image',image_base64:ref}]}]};
+    const res=await api.callOpenAI(openaiKey,body);
+    placeholder.status='готово';
+    const outs=res.output?.[0]?.content||[];
+    outs.forEach(o=>{if(o.type==='output_text') placeholder.content=o.text; if(o.type==='output_image') placeholder.attachments.push('data:image/png;base64,'+o.image_base64);});
+    placeholder.params.cost=calcOpenAICost(model,res.usage||{});
+  }catch(e){
+    placeholder.status='ошибка';
+    placeholder.content=e.message;
+  }
+  setStatus(placeholderEl,placeholder.status);
+  await api.addMessage(activeChat,placeholder);
+  placeholderEl.replaceWith(createMessageEl(placeholder));
+  if(placeholder.status!=='готово') return;
+  const apiKey=getRunwayKey();
+  const info=MODEL_INFO[currentModel];
+  const images=[...imgs.targets.filter(Boolean),imgs.reference].map(u=>({uri:u}));
+  const payload={model:currentModel,promptText:placeholder.content,ratio:currentRatio||info.ratios?.[0],referenceImages:images};
+  const credits=info.cost({ratio:currentRatio})||0;
+  const params={model:info.label,mode:REPLACE_MODE,ratio:currentRatio||info.ratios?.[0],credits};
+  const ph={role:'assistant',content:'',status:'отправка',attachments:[],params};
+  const phEl=createMessageEl(ph); messagesEl.appendChild(phEl); messagesEl.scrollTop=messagesEl.scrollHeight;
+  try{
+    const res2=await api.callRunway(apiKey,info.endpoint,payload);
+    ph.status='обработка'; setStatus(phEl,ph.status);
+    const task=await api.waitForTask(apiKey,res2.id,t=>{
+      if(t.status){const pct=t.progress!=null?Math.floor(t.progress*100):null;ph.status=pct!=null?`обработка ${pct}%`:'обработка';setStatus(phEl,ph.status);}
+    });
+    if(task.status==='SUCCEEDED' && task.output){
+      ph.status='готово';
+      ph.attachments=await Promise.all(task.output.map(async u=>{if(typeof u==='string'&&u.startsWith('data:')) return u; try{const r=await fetch(u);const b=await r.blob();return await new Promise(res=>{const fr=new FileReader();fr.onloadend=()=>res(fr.result);fr.readAsDataURL(b);});}catch{return u;} }));
+    }else{ph.status='ошибка';ph.content='Ошибка генерации';}
+  }catch(e){ph.status='ошибка';ph.content=e.message;}
+  setStatus(phEl,ph.status);
+  await api.addMessage(activeChat,ph);
+  phEl.replaceWith(createMessageEl(ph));
+  updateCost();
+}
+
 async function handleSend(){
+  if(currentModes.includes(REPLACE_MODE)){
+    await handleReplaceSend();
+    return;
+  }
   const apiKey=getRunwayKey();
   if(!apiKey){ showToast('Введите API ключ'); return; }
   if(!activeChat){ showToast('Нет активного чата'); return; }
@@ -710,6 +878,7 @@ export function init(){
   promptInput=document.getElementById('promptInput');
   sendBtn=document.getElementById('sendBtn');
   attachBtn=document.getElementById('attachBtn');
+  openaiBtn=document.getElementById('openaiBtn');
   ratioBtn=document.getElementById('ratioBtn');
   durationBtn=document.getElementById('durationBtn');
   hiddenFile=document.getElementById('hiddenFile');
@@ -720,6 +889,7 @@ export function init(){
   balanceEl=document.getElementById('balanceCredits');
   attachPreview=document.getElementById('attachPreview');
   attachMenu=document.getElementById('attachMenu');
+  replaceMenu=document.getElementById('replaceMenu');
   estCost=document.getElementById('estCost');
   settingsBtn=document.getElementById('settingsBtn');
   settingsModal=document.getElementById('settingsModal');
@@ -732,7 +902,7 @@ export function init(){
   modeCancelBtn=document.getElementById('modeCancel');
   viewer=document.getElementById('viewer');
 
-  if(!modelBtn||!chatListEl||!newChatBtn||!messagesEl||!promptInput||!sendBtn||!attachBtn||!ratioBtn||!durationBtn||!hiddenFile||!runwayKeyInput||!openaiKeyInput||!openaiTiersEl||!saveSettingsBtn||!balanceEl||!attachPreview||!attachMenu||!settingsBtn||!settingsModal||!modeBtn||!modeMenu||!modeTags||!modeSettingsModal||!modeSettingsContent||!modeSaveBtn||!modeCancelBtn||!viewer){
+  if(!modelBtn||!chatListEl||!newChatBtn||!messagesEl||!promptInput||!sendBtn||!attachBtn||!openaiBtn||!ratioBtn||!durationBtn||!hiddenFile||!runwayKeyInput||!openaiKeyInput||!openaiTiersEl||!saveSettingsBtn||!balanceEl||!attachPreview||!attachMenu||!replaceMenu||!settingsBtn||!settingsModal||!modeBtn||!modeMenu||!modeTags||!modeSettingsModal||!modeSettingsContent||!modeSaveBtn||!modeCancelBtn||!viewer){
     console.error('Missing DOM elements'); return;
   }
 
@@ -770,7 +940,13 @@ export function init(){
 
   modeBtn.addEventListener('click',e=>{e.stopPropagation();togglePopup(modeBtn,modeMenu);});
   modeSaveBtn.addEventListener('click',()=>{
-    modeSettings[editingMode]=true;
+    if(editingMode===REPLACE_MODE){
+      const prompt=document.getElementById('modePrompt').value.trim();
+      const tier=parseInt(document.getElementById('modeTier').value,10);
+      modeSettings[REPLACE_MODE]={prompt:prompt||REPLACE_PROMPT_DEFAULT,tier,images:replaceInputs};
+    }else{
+      modeSettings[editingMode]=true;
+    }
     modeSettingsModal.classList.add('hidden');
     updateChatState();
   });
@@ -793,10 +969,12 @@ export function init(){
     togglePopup(modelBtn, modelMenu);
   });
   attachBtn.addEventListener('click',e=>{
+    if(attachBtn.classList.contains('disabled')) return;
     e.stopPropagation();
     renderAttachMenu();
     togglePopup(attachBtn, attachMenu);
   });
+  openaiBtn.addEventListener('click',e=>{e.stopPropagation();renderReplaceMenu();togglePopup(openaiBtn,replaceMenu);});
   hiddenFile.addEventListener('change',e=>{const slot=hiddenFile.dataset.slot;const idx=parseInt(hiddenFile.dataset.index,10)||0;handleFiles(slot,idx,e.target.files);hiddenFile.value='';});
   ratioBtn.addEventListener('click',e=>{e.stopPropagation();showRatioMenu();});
   durationBtn.addEventListener('click',e=>{e.stopPropagation();showDurationMenu();});

@@ -145,8 +145,8 @@ html,body{
 /* message attachments */
 .attachment-box{position:relative;width:120px;height:80px;border-radius:6px;margin-top:4px;background:url('./images/empty-field-bg.png');background-size:cover;background-position:center;display:flex;align-items:center;justify-content:center;}
 .attachment-box .attachment{max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;}
-.attachment-box .download-btn{position:absolute;top:4px;right:4px;width:24px;height:24px;background:rgba(0,0,0,0.6);border-radius:4px;display:flex;align-items:center;justify-content:center;}
-.attachment-box .download-btn img{width:14px;height:14px;filter:invert(1);}
+.attachment-box .download-btn{position:absolute;bottom:4px;right:4px;width:24px;height:24px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;}
+.attachment-box .download-btn img{width:14px;height:14px;filter:none;}
 
 .model-desc{text-align:center;color:#888;margin-top:40px;}
 .coming-soon{display:flex;align-items:center;justify-content:center;height:calc(100vh - 40px);font-size:24px;color:#555;}
@@ -170,4 +170,19 @@ html,body{
 .toast{position:fixed;top:50px;left:50%;transform:translate(-50%,-20px);background:#333;color:#fff;padding:8px 16px;border-radius:6px;z-index:300;opacity:0;transition:opacity .3s,transform .3s;}
 .toast.show{opacity:1;transform:translate(-50%,0);}
 .toast.hide{opacity:0;}
+
+.icon-btn.disabled{opacity:0.4;pointer-events:none;}
+.popup button.disabled{opacity:0.4;pointer-events:none;}
+
+.replace-menu{display:flex;gap:8px;padding:8px;}
+.replace-menu .replace-col{display:flex;flex-direction:column;gap:4px;}
+.replace-menu .replace-slot{width:80px;height:80px;background:#eee;border-radius:6px;display:flex;align-items:center;justify-content:center;position:relative;cursor:pointer;}
+.replace-menu .replace-slot.filled{background:url('./images/empty-field-bg.png');background-size:cover;background-position:center;}
+.replace-menu .replace-slot img{max-width:100%;max-height:100%;object-fit:cover;border-radius:6px;}
+.replace-menu .replace-slot .remove{position:absolute;top:2px;right:2px;background:#fff;border:none;border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.replace-menu .arrow{align-self:center;width:24px;height:24px;}
+
+.viewer-controls{display:flex;align-items:center;gap:8px;margin-top:8px;}
+.viewer-controls button{background:none;border:none;font-size:24px;cursor:pointer;}
+.viewer-controls input[type=range]{flex:1;}
 
