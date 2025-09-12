@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 import json
-from .db import get_conn
+from db import get_conn
 
 bp = Blueprint("chats", __name__, url_prefix="/local")
 
