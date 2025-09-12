@@ -9,6 +9,9 @@ from pathlib import Path
 from flask import Flask, request, make_response, send_file, jsonify, send_from_directory
 from flask_cors import CORS
 import requests
+import logging
+import threading
+
 
 import globals as g
 from utils.logger import log, FULL_LOGS, maybe_truncate
@@ -19,6 +22,67 @@ from services.elevenlabs_manager import VOICE_DEFAULTS, MODEL_VOICE_PARAMS
 from services.request_handlers import execute_openai_request_parallel
 from chat_routes import bp as chat_bp
 from db import init_db
+
+# --- Logging setup ---------------------------------------------------------
+logger = logging.getLogger("runway_proxy")
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+    logger.addHandler(_h)
+
+# Cache of the latest Authorization header so the proxy can periodically
+# refresh tokens without a new client request.
+_cached_auth = {"header": None}
+
+
+def _redact_auth(hdr: str) -> str:
+    if not hdr:
+        return hdr
+    parts = hdr.split()
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        tok = parts[1]
+        return f"Bearer ****{tok[-4:]}" if len(tok) > 8 else "Bearer ****"
+    return hdr
+
+
+def _dump_headers(headers):
+    return {k: (_redact_auth(v) if k.lower() == "authorization" else v) for k, v in headers.items()}
+
+
+def _log_request(req):
+    try:
+        body = req.get_data(cache=True)
+    except Exception:
+        body = b""
+    preview = body[:4096].decode("utf-8", errors="replace") if body else ""
+    logger.info("REQ %s %s | headers=%s | body=%s", req.method, req.path, _dump_headers(dict(req.headers)), preview)
+
+
+def _log_response(status, headers, content):
+    preview = content[:4096].decode("utf-8", errors="replace") if content else ""
+    logger.info("RES %s | headers=%s | body=%s", status, _dump_headers(dict(headers)), preview)
+
+
+def _token_refresh_loop():
+    while True:
+        hdr = _cached_auth.get("header")
+        if hdr:
+            try:
+                requests.get(
+                    "https://api.runwayml.com/v1/organization",
+                    headers={"Authorization": hdr},
+                    timeout=30,
+                )
+                logger.info("Token refresh check succeeded")
+            except requests.RequestException as e:
+                logger.warning("Token refresh failed: %s", e)
+        time.sleep(60)
+
+
+# Start background token refresh thread as soon as module loads
+threading.Thread(target=_token_refresh_loop, daemon=True).start()
+
 
 CLIENT_DIR = Path(__file__).resolve().parents[2] / "client"
 openai_request_batcher = OpenAIRequestBatcher()
@@ -102,6 +166,8 @@ def register_routes(app):
         try:
             url = f"https://api.runwayml.com/v1/{path}"
             headers = {k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length")}
+            _cached_auth["header"] = headers.get("Authorization") or _cached_auth.get("header")
+            _log_request(request)
             data = request.get_json(silent=True)
             kwargs = {
                 "headers": headers,
@@ -111,6 +177,7 @@ def register_routes(app):
             if request.method != "GET" and data is not None:
                 kwargs["json"] = data
             upstream = requests.request(request.method, url, **kwargs)
+            _log_response(upstream.status_code, upstream.headers, upstream.content)
             resp = make_response(upstream.content, upstream.status_code)
             resp.headers["Content-Type"] = upstream.headers.get("Content-Type", "application/json")
             return add_cors(resp)
