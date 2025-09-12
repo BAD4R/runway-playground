@@ -19,7 +19,7 @@ from services.elevenlabs_manager import VOICE_DEFAULTS, MODEL_VOICE_PARAMS
 from services.request_handlers import execute_openai_request_parallel
 from chat_routes import bp as chat_bp
 
-CLIENT_DIR = Path(__file__).resolve().parents[1] / "client"
+CLIENT_DIR = Path(__file__).resolve().parents[2] / "client"
 openai_request_batcher = OpenAIRequestBatcher()
 
 
@@ -91,6 +91,29 @@ def register_routes(app):
         except Exception as e:
             log.error(f"❌ Shutdown error: {e}")
             return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route("/api/<path:path>", methods=["GET", "POST", "DELETE", "PATCH", "OPTIONS"])
+    def proxy_runway(path):
+        if request.method == "OPTIONS":
+            return add_cors(make_response())
+        try:
+            url = f"https://api.runwayml.com/v1/{path}"
+            headers = {k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length")}
+            data = request.get_json(silent=True)
+            kwargs = {
+                "headers": headers,
+                "params": request.args,
+                "timeout": 60,
+            }
+            if request.method != "GET" and data is not None:
+                kwargs["json"] = data
+            upstream = requests.request(request.method, url, **kwargs)
+            resp = make_response(upstream.content, upstream.status_code)
+            resp.headers["Content-Type"] = upstream.headers.get("Content-Type", "application/json")
+            return add_cors(resp)
+        except Exception as e:
+            log.error(f"❌ Runway proxy error: {e}")
+            return add_cors(make_response(f"Proxy error: {e}", 500))
 
     @app.route("/proxy-recraft-styles", methods=["POST", "OPTIONS"])
     def proxy_recraft_styles():
