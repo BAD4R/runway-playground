@@ -1,13 +1,15 @@
 import * as api from './api.js';
-import { getApiKey, setApiKey } from './state.js';
+import { getRunwayKey, setRunwayKey, getOpenAIKey, setOpenAIKey, getOpenAITiers, setOpenAITiers } from './state.js';
 import { positionPopup, hidePopups, togglePopup, showToast } from './ui.js';
 
 const log = (...args) => console.log('[chat]', ...args);
 
 let modelBtn, modelMenu, chatListEl, newChatBtn, messagesEl, promptInput,
-    sendBtn, attachBtn, ratioBtn, durationBtn, hiddenFile, apiKeyInput,
-    saveKeyBtn, balanceEl, attachPreview, attachMenu, estCost,
-    settingsBtn, settingsModal, viewer;
+    sendBtn, attachBtn, ratioBtn, durationBtn, hiddenFile,
+    runwayKeyInput, openaiKeyInput, openaiTiersEl, saveSettingsBtn, balanceEl,
+    attachPreview, attachMenu, estCost, settingsBtn, settingsModal,
+    modeBtn, modeMenu, modeTags, modeSettingsModal, modeSettingsContent,
+    modeSaveBtn, modeCancelBtn, viewer;
 
 let chats = [];
 let activeChat = null;
@@ -17,6 +19,9 @@ let currentRatio = null;
 let currentDuration = null;
 let chatColor = '#d946ef';
 let autoAttach = false;
+let openAiPrices = {};
+let currentModes = [];
+let modeSettings = {};
 
 function withAlpha(hex, alpha){
   const r=parseInt(hex.slice(1,3),16);
@@ -127,6 +132,8 @@ const MODEL_INFO = {
     cost:({duration=8})=>40*duration
   }
 };
+
+const AVAILABLE_MODES = ['Комбо','Анализ','Эконом'];
 
 function populateModelMenu(){
   modelMenu.innerHTML='';
@@ -376,8 +383,8 @@ async function loadChats(){
   renderChatList();
   if(chats.length===0){
     const color=MODEL_INFO[currentModel].color;
-    const c=await api.createChat('Новый чат',{color,model:currentModel});
-    c.state={color,model:currentModel};
+    const c=await api.createChat('Новый чат',{color,model:currentModel,modes:[],modeSettings:{}});
+    c.state={color,model:currentModel,modes:[],modeSettings:{}};
     chats.unshift(c);
     renderChatList();
   }
@@ -393,11 +400,14 @@ async function selectChat(id){
   currentFiles=chat.state.files||{};
   currentRatio=chat.state.ratio||null;
   currentDuration=chat.state.duration||null;
+  currentModes=chat.state.modes||[];
+  modeSettings=chat.state.modeSettings||{};
   renderAttachMenu();
   renderAttachPreview();
   updateCost();
   updateModelDesc();
   renderMessages(msgs);
+  renderModeTags();
 
   activeChat=id;
   const info=MODEL_INFO[currentModel];
@@ -508,7 +518,7 @@ function setStatus(el,text){
 
 function updateChatState(){
   if(!activeChat) return;
-  api.updateChat(activeChat,{state:{model:currentModel,prompt:promptInput.value,files:currentFiles,ratio:currentRatio,duration:currentDuration,color:chatColor}});
+  api.updateChat(activeChat,{state:{model:currentModel,prompt:promptInput.value,files:currentFiles,ratio:currentRatio,duration:currentDuration,color:chatColor,modes:currentModes,modeSettings}});
 }
 
 function updateCost(){
@@ -523,8 +533,82 @@ function updateCost(){
   estCost.textContent=parts.join(', ');
 }
 
+function renderModeMenu(){
+  modeMenu.innerHTML='';
+  AVAILABLE_MODES.forEach(m=>{
+    const row=document.createElement('div');
+    row.className='mode-item';
+    const b=document.createElement('button');
+    b.textContent=m;
+    b.addEventListener('click',()=>{activateMode(m);hidePopups();});
+    const gear=document.createElement('span');
+    gear.className='mode-gear';
+    gear.innerHTML='<img src="./icons/gear.svg" alt="settings" />';
+    gear.addEventListener('click',e=>{e.stopPropagation();openModeSettings(m);});
+    row.appendChild(b); row.appendChild(gear);
+    modeMenu.appendChild(row);
+  });
+}
+
+function activateMode(m){
+  if(!currentModes.includes(m)) currentModes.push(m);
+  renderModeTags();
+  updateChatState();
+}
+
+function removeMode(m){
+  currentModes=currentModes.filter(x=>x!==m);
+  renderModeTags();
+  updateChatState();
+}
+
+function renderModeTags(){
+  modeTags.innerHTML='';
+  currentModes.forEach(m=>{
+    const tag=document.createElement('span');
+    tag.className='mode-tag';
+    tag.textContent=m;
+    const x=document.createElement('button');
+    x.textContent='×';
+    x.addEventListener('click',e=>{e.stopPropagation();removeMode(m);});
+    tag.appendChild(x);
+    tag.addEventListener('click',()=>openModeSettings(m));
+    modeTags.appendChild(tag);
+  });
+}
+
+let editingMode=null;
+function openModeSettings(m){
+  editingMode=m;
+  modeSettingsContent.innerHTML=`<p>Настройки для ${m}</p>`;
+  modeSettingsModal.classList.remove('hidden');
+}
+
+function renderOpenAITiers(){
+  openaiTiersEl.innerHTML='';
+  const tiers=getOpenAITiers();
+  for(let i=1;i<=5;i++){
+    const lbl=document.createElement('label');
+    lbl.textContent=`Tier ${i}`;
+    const sel=document.createElement('select');
+    sel.dataset.tier=i;
+    Object.keys(openAiPrices).forEach(m=>{
+      const p=openAiPrices[m];
+      const opt=document.createElement('option');
+      opt.value=m;
+      const inp=p.input!=null?`$${p.input}`:'-';
+      const outp=p.output!=null?`$${p.output}`:'-';
+      opt.textContent=`${m} (${inp} / ${outp})`;
+      sel.appendChild(opt);
+    });
+    sel.value=tiers[i]||sel.options[0]?.value;
+    lbl.appendChild(sel);
+    openaiTiersEl.appendChild(lbl);
+  }
+}
+
 async function handleSend(){
-  const apiKey=getApiKey();
+  const apiKey=getRunwayKey();
   if(!apiKey){ showToast('Введите API ключ'); return; }
   if(!activeChat){ showToast('Нет активного чата'); return; }
   const prompt=promptInput.value.trim();
@@ -611,7 +695,7 @@ async function buildPayload(model,prompt,files){
 }
 
 async function refreshBalance(silent=false){
-  const key=getApiKey();
+  const key=getRunwayKey();
   if(!key) return;
   const j=await api.fetchBalance(key,silent);
   if(j && typeof j.creditBalance==='number') balanceEl.textContent=j.creditBalance;
@@ -629,33 +713,74 @@ export function init(){
   ratioBtn=document.getElementById('ratioBtn');
   durationBtn=document.getElementById('durationBtn');
   hiddenFile=document.getElementById('hiddenFile');
-  apiKeyInput=document.getElementById('apiKey');
-  saveKeyBtn=document.getElementById('saveKeyBtn');
+  runwayKeyInput=document.getElementById('runwayKey');
+  openaiKeyInput=document.getElementById('openaiKey');
+  openaiTiersEl=document.getElementById('openaiTiers');
+  saveSettingsBtn=document.getElementById('saveSettingsBtn');
   balanceEl=document.getElementById('balanceCredits');
   attachPreview=document.getElementById('attachPreview');
   attachMenu=document.getElementById('attachMenu');
   estCost=document.getElementById('estCost');
   settingsBtn=document.getElementById('settingsBtn');
   settingsModal=document.getElementById('settingsModal');
+  modeBtn=document.getElementById('modeBtn');
+  modeMenu=document.getElementById('modeMenu');
+  modeTags=document.getElementById('modeTags');
+  modeSettingsModal=document.getElementById('modeSettings');
+  modeSettingsContent=document.getElementById('modeSettingsContent');
+  modeSaveBtn=document.getElementById('modeSave');
+  modeCancelBtn=document.getElementById('modeCancel');
   viewer=document.getElementById('viewer');
 
-  if(!modelBtn||!chatListEl||!newChatBtn||!messagesEl||!promptInput||!sendBtn||!attachBtn||!ratioBtn||!durationBtn||!hiddenFile||!apiKeyInput||!saveKeyBtn||!balanceEl||!attachPreview||!attachMenu||!settingsBtn||!settingsModal||!viewer){
+  if(!modelBtn||!chatListEl||!newChatBtn||!messagesEl||!promptInput||!sendBtn||!attachBtn||!ratioBtn||!durationBtn||!hiddenFile||!runwayKeyInput||!openaiKeyInput||!openaiTiersEl||!saveSettingsBtn||!balanceEl||!attachPreview||!attachMenu||!settingsBtn||!settingsModal||!modeBtn||!modeMenu||!modeTags||!modeSettingsModal||!modeSettingsContent||!modeSaveBtn||!modeCancelBtn||!viewer){
     console.error('Missing DOM elements'); return;
   }
 
   populateModelMenu();
+  renderModeMenu();
   selectModel(currentModel);
-  apiKeyInput.value=getApiKey();
-  if(apiKeyInput.value) refreshBalance(true);
+  runwayKeyInput.value=getRunwayKey();
+  openaiKeyInput.value=getOpenAIKey();
+  if(runwayKeyInput.value) refreshBalance(true);
 
-  saveKeyBtn.addEventListener('click',()=>{ setApiKey(apiKeyInput.value.trim()); settingsModal.classList.add('hidden'); refreshBalance();});
-  settingsBtn.addEventListener('click',()=>{ settingsModal.classList.remove('hidden'); });
+  saveSettingsBtn.addEventListener('click',()=>{
+    setRunwayKey(runwayKeyInput.value.trim());
+    setOpenAIKey(openaiKeyInput.value.trim());
+    const tiers={};
+    openaiTiersEl.querySelectorAll('select').forEach(sel=>tiers[sel.dataset.tier]=sel.value);
+    setOpenAITiers(tiers);
+    settingsModal.classList.add('hidden');
+    refreshBalance();
+  });
+  settingsBtn.addEventListener('click',()=>{
+    runwayKeyInput.value=getRunwayKey();
+    openaiKeyInput.value=getOpenAIKey();
+    renderOpenAITiers();
+    settingsModal.classList.remove('hidden');
+  });
   settingsModal.addEventListener('click',e=>{ if(e.target===settingsModal) settingsModal.classList.add('hidden'); });
+  settingsModal.querySelectorAll('.tabs button').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      settingsModal.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      settingsModal.querySelectorAll('.tab-content').forEach(c=>c.classList.add('hidden'));
+      document.getElementById('tab-'+btn.dataset.tab).classList.remove('hidden');
+    });
+  });
+
+  modeBtn.addEventListener('click',e=>{e.stopPropagation();togglePopup(modeBtn,modeMenu);});
+  modeSaveBtn.addEventListener('click',()=>{
+    modeSettings[editingMode]=true;
+    modeSettingsModal.classList.add('hidden');
+    updateChatState();
+  });
+  modeCancelBtn.addEventListener('click',()=>modeSettingsModal.classList.add('hidden'));
+  modeSettingsModal.addEventListener('click',e=>{if(e.target===modeSettingsModal) modeSettingsModal.classList.add('hidden');});
   viewer.addEventListener('click',e=>{ if(e.target===viewer) viewer.classList.add('hidden'); });
   newChatBtn.addEventListener('click',async()=>{
     const color=MODEL_INFO[currentModel].color;
-    const c=await api.createChat('Новый чат',{color,model:currentModel});
-    c.state={color,model:currentModel};
+    const c=await api.createChat('Новый чат',{color,model:currentModel,modes:[],modeSettings:{}});
+    c.state={color,model:currentModel,modes:[],modeSettings:{}};
     chatColor=color;
     document.documentElement.style.setProperty('--accent', color);
     document.documentElement.style.setProperty('--accent-bg', withAlpha(color,0.15));
@@ -695,6 +820,7 @@ export function init(){
       setTimeout(()=>{if(autoAttach){hidePopups(); autoAttach=false;}},0);
     }
   });
+  fetch('./globalParams.json').then(r=>r.json()).then(d=>{openAiPrices=d.openAiPrices||{};});
   loadChats();
 }
 
