@@ -16,13 +16,7 @@ from config.settings import get_openai_config
 from services.openai_batcher import OpenAIRequestBatcher
 from services.elevenlabs_manager import VOICE_DEFAULTS, MODEL_VOICE_PARAMS
 from services.request_handlers import execute_openai_request_parallel
-from ..chat_routes import bp as chat_bp
-
-openai_request_batcher = OpenAIRequestBatcher()
-
-openai_request_batcher = OpenAIRequestBatcher()
-
-openai_request_batcher = OpenAIRequestBatcher()
+from chat_routes import bp as chat_bp
 
 openai_request_batcher = OpenAIRequestBatcher()
 
