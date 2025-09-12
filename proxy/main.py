@@ -1,198 +1,111 @@
-# proxy/main.py
-# Flask proxy for Runway API with proper CORS preflight handling and verbose logging.
-# Run:  python main.py
-# Listens: http://localhost:5100
-# Proxies: /api/*  -> https://api.dev.runwayml.com/v1/*
-# - Authorization is taken from client's header (you enter key on the site)
-# - X-Runway-Version kept or defaulted to 2024-11-06
-# - OPTIONS handled LOCALLY (204) to avoid upstream 401 on CORS preflight
-# - Verbose logging; Authorization redacted in logs
-
-from flask import Flask, request, Response, jsonify, make_response, stream_with_context
-import requests
+# -*- coding: utf-8 -*-
+"""
+Main entry point for the proxy server
+"""
+import threading
 import logging
-import sys
-from datetime import datetime
-from pathlib import Path
 
-from db import init_db
-from chat_routes import bp as chat_bp
-
-UPSTREAM = "https://api.dev.runwayml.com/v1"
-DEFAULT_API_VERSION = "2024-11-06"
-READ_LOG_BODY_LIMIT = 4096  # bytes
-
-# Serve client files so index.html can be opened via http://localhost:5100/
-BASE_DIR = Path(__file__).resolve().parents[1]
-app = Flask(
-    __name__,
-    static_folder=str(BASE_DIR / "client"),
-    static_url_path="",
-)
-init_db()
-app.register_blueprint(chat_bp)
+from utils.logger import log
+from utils.logging import ShortURLFilter
+from core.rate_limiters import OpenAIRateLimiter, ElevenLabsRateLimiter
+from core.stats import stats, _stats_loop, _rate_limit_monitor
+from proxy.mobile_proxy import MobileProxyManager
+from proxy.proxy_manager import ElevenLabsProxyManager
+from services.elevenlabs_manager import ElevenLabsManager, ElevenLabsQueue
+from web.routes import create_app
+from web.excel_management import register_excel_routes
 
 
-@app.route("/")
-def root():
-    return app.send_static_file("index.html")
+# ====================================================================
+# GLOBAL SETUP
+# ====================================================================
 
-# ---------- Logging ----------
-logger = logging.getLogger("runway_proxy")
-logger.setLevel(logging.INFO)
-handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
-logger.addHandler(handler)
+# Rate limiters
+openai_limiter = OpenAIRateLimiter()
+elevenlabs_rate_limiter = ElevenLabsRateLimiter()
 
-def redact_auth(hdr: str) -> str:
-    if not hdr:
-        return hdr
-    parts = hdr.split()
-    if len(parts) == 2 and parts[0].lower() == "bearer":
-        tok = parts[1]
-        return f"Bearer ****{tok[-4:]}" if len(tok) > 8 else "Bearer ****"
-    return hdr
 
-def dump_headers_for_log(headers):
-    return {k: (redact_auth(v) if k.lower() == "authorization" else v) for k, v in headers.items()}
+# Managers
+proxy_manager = ElevenLabsProxyManager()
+elevenlabs_manager = ElevenLabsManager()
+elevenlabs_queue = ElevenLabsQueue(excel_path=elevenlabs_manager.excel_path)
 
-def log_request(req):
-    if req.args.get("no_log"):
+def start_background_threads():
+    """Запускает фоновые потоки"""
+    # Statistics thread
+    threading.Thread(target=_stats_loop, daemon=True).start()
+
+    # Rate limit monitor thread
+    threading.Thread(target=_rate_limit_monitor, daemon=True).start()
+
+def setup_mobile_proxy():
+    """Настройка мобильного прокси (один экземпляр для всех менеджеров)"""
+    MOBILE_PROXY_ID = "407714"
+    MOBILE_API_KEY = "f2d5358b7c6d4159663d9899605f245e"
+
+    if not (MOBILE_PROXY_ID and MOBILE_API_KEY):
+        log.warning("⚠️ MOBILE_PROXY_ID/MOBILE_API_KEY not configured")
         return
-    try:
-        body = req.get_data(cache=True)
-    except Exception:
-        body = b""
-    preview = (body[:READ_LOG_BODY_LIMIT]).decode("utf-8", errors="replace") if body else ""
-    logger.info(
-        "REQ %s %s%s | args=%s | headers=%s | body=%s",
-        req.method,
-        req.path,
-        f"?{req.query_string.decode()}" if req.query_string else "",
-        dict(req.args),
-        dump_headers_for_log(dict(req.headers)),
-        preview,
-    )
 
-def log_response(status_code, headers, content):
-    if request.args.get("no_log"):
+    # 1) Создаём ОДИН MobileProxyManager через ProxyManager
+    pm_success = proxy_manager.set_mobile_proxy(MOBILE_PROXY_ID, MOBILE_API_KEY)
+    if not pm_success:
+        log.error("❌ ProxyManager mobile proxy config failed")
         return
-    try:
-        preview = (content[:READ_LOG_BODY_LIMIT]).decode("utf-8", errors="replace")
-    except Exception:
-        preview = "<unreadable>"
-    key_hdrs = {k.lower(): v for k, v in headers.items()}
-    brief = {k: key_hdrs[k] for k in ["content-type", "content-length", "date"] if k in key_hdrs}
-    logger.info("RES %s | headers=%s | body=%s", status_code, brief, preview)
 
-# ---------- CORS helpers ----------
-def cors_headers():
-    origin = request.headers.get("Origin", "*")
-    allow_headers = request.headers.get(
-        "Access-Control-Request-Headers",
-        "Authorization, Content-Type, X-Runway-Version",
+    # 2) Переиспользуем тот же экземпляр в ElevenLabsManager (без повторных API-запросов)
+    elevenlabs_manager.mobile_proxy = proxy_manager.mobile_proxy
+    # Передаём тот же прокси очереди ElevenLabs
+    elevenlabs_queue.mobile_proxy = proxy_manager.mobile_proxy
+    current_ip = proxy_manager.mobile_proxy.current_ip or "configured"
+
+    print(f"✅ Mobile proxy configured automatically: {current_ip}")
+    log.info(f"✅ Mobile proxy configured automatically: {current_ip}")
+    log.info("🔁 Reused single MobileProxyManager for all managers")
+
+def setup_logging_filters():
+    """Настройка фильтров логирования"""
+    werkzeug_logger = logging.getLogger('werkzeug')
+    werkzeug_logger.addFilter(ShortURLFilter())
+    werkzeug_logger.setLevel(logging.WARNING)
+    # ДОБАВЛЯЕМ DEBUG логирование для ElevenLabs
+    elevenlabs_logger = logging.getLogger("proxy")
+    elevenlabs_logger.setLevel(logging.DEBUG)  # Включаем DEBUG логи
+
+def main():
+    """Главная функция запуска сервера"""
+    print("🚀 Enhanced Proxy Server starting on 0.0.0.0:8001")
+    log.info("🚀 Enhanced Proxy Server starting on 0.0.0.0:8001")
+    
+    # Запуск фоновых потоков
+    start_background_threads()
+    
+    # Настройка мобильного прокси
+    setup_mobile_proxy()
+    
+    # Настройка логирования
+    setup_logging_filters()
+    
+    # Создание Flask приложения
+    app = create_app()
+    register_excel_routes(app)
+    
+    # Инициализация глобальных объектов
+    import globals as g
+    g.init_globals(
+        openai_limiter=openai_limiter,
+        elevenlabs_rate_limiter=elevenlabs_rate_limiter,
+        proxy_manager=proxy_manager,
+        elevenlabs_manager=elevenlabs_manager,
+        elevenlabs_queue=elevenlabs_queue,
+        stats=stats,
+        app=app,
     )
-    return {
-        "Access-Control-Allow-Origin": origin,
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": allow_headers,
-        "Vary": "Origin",
-    }
-
-@app.after_request
-def add_cors(resp):
-    for k, v in cors_headers().items():
-        resp.headers[k] = v
-    return resp
-
-# ---------- Health ----------
-@app.get("/health")
-def health():
-    return jsonify({"ok": True, "time": datetime.utcnow().isoformat() + "Z"})
-
-# ---------- Proxy helpers ----------
-def _build_upstream_url(path: str) -> str:
-    path = path.lstrip("/")
-    return f"{UPSTREAM}/{path}"
-
-# ---------- Runway proxy ----------
-@app.route("/api", defaults={"full_path": ""}, methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
-@app.route("/api/<path:full_path>", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"])
-def proxy(full_path):
-    skip_log = request.args.get("no_log") == "1" or request.headers.get("X-Proxy-No-Log") == "1"
-    if request.method == "OPTIONS":
-        if not skip_log:
-            logger.info("Handling CORS preflight locally for /api/%s", full_path)
-        resp = make_response("", 204)
-        for k, v in cors_headers().items():
-            resp.headers[k] = v
-        return resp
-
-    if not skip_log:
-        log_request(request)
-
-    upstream_url = _build_upstream_url(full_path)
-
-    headers = {}
-    auth = request.headers.get("Authorization", "")
-    if auth:
-        headers["Authorization"] = auth
-    api_ver = request.headers.get("X-Runway-Version", DEFAULT_API_VERSION)
-    headers["X-Runway-Version"] = api_ver
-    if request.headers.get("Content-Type"):
-        headers["Content-Type"] = request.headers["Content-Type"]
-
-    method = request.method.upper()
-    try:
-        params = dict(request.args)
-        params.pop("no_log", None)
-        r = requests.request(
-            method=method,
-            url=upstream_url,
-            params=params,
-            data=(request.get_data() if method not in ("GET", "HEAD", "DELETE") else None),
-            headers=headers,
-            timeout=120,
-            stream=True,
-        )
-    except requests.RequestException as e:
-        logger.error("Upstream request error: %s", e)
-        resp = jsonify({"error": "proxy_error", "message": str(e)})
-        resp.status_code = 502
-        return resp
-
-    def generate():
-        collected = b""
-        for chunk in r.iter_content(chunk_size=8192):
-            if len(collected) < READ_LOG_BODY_LIMIT:
-                to_take = min(len(chunk), READ_LOG_BODY_LIMIT - len(collected))
-                collected += chunk[:to_take]
-            yield chunk
-        if not skip_log:
-            log_response(r.status_code, r.headers, collected)
-
-    resp = Response(
-        stream_with_context(generate()),
-        status=r.status_code,
-    )
-    if r.headers.get("Content-Type"):
-        resp.headers["Content-Type"] = r.headers["Content-Type"]
-    if r.headers.get("Content-Length"):
-        resp.headers["Content-Length"] = r.headers["Content-Length"]
-    return resp
-
-# ---------- Client files ----------
-@app.route("/", defaults={"path": "index.html"}, methods=["GET"])
-@app.route("/<path:path>", methods=["GET"])
-def client_files(path):
-    target = CLIENT_DIR / path
-    if target.is_dir():
-        path = f"{path.rstrip('/')}/index.html"
-    return send_from_directory(CLIENT_DIR, path)
+    
+    # Запуск сервера
+    app.run(host="0.0.0.0", port=8001, threaded=True)
+__all__ = ['openai_limiter', 'elevenlabs_rate_limiter',
+           'proxy_manager', 'elevenlabs_manager', 'elevenlabs_queue']
 
 if __name__ == "__main__":
-    logger.info("▶️  Flask proxy listening on http://localhost:5100")
-    logger.info("    Forwarding /api/* -> %s/*", UPSTREAM)
-    logger.info("    Client must send Authorization: Bearer <RUNWAY_API_KEY>")
-    app.run(host="0.0.0.0", port=5100, debug=False)
+    main()
