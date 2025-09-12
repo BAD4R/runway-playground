@@ -783,7 +783,21 @@ def register_routes(app):
                 "body": req_json,
             }
 
+            log.info("📤 OpenAI Request: POST %s", request_data["url"])
+            log.debug("Payload: %s", maybe_truncate(json.dumps(req_json), 200))
+
             response_data = openai_request_batcher.enqueue(request_data, config)
+
+            log.info("📥 OpenAI Response: %d", response_data["status_code"])
+            try:
+                _preview = (
+                    response_data["content"].decode("utf-8", errors="replace")
+                    if isinstance(response_data["content"], (bytes, bytearray))
+                    else str(response_data["content"])
+                )
+                log.debug("Response body: %s", maybe_truncate(_preview, 200))
+            except Exception:
+                pass
 
             if response_data["status_code"] in [503, 504]:
                 error_content = response_data["content"]
