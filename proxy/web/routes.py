@@ -23,13 +23,8 @@ from services.elevenlabs_manager import VOICE_DEFAULTS, MODEL_VOICE_PARAMS
 from services.request_handlers import execute_openai_request_parallel
 from chat_routes import bp as chat_bp
 from db import init_db
-
-RUNWAY_BASE_URL = os.getenv("RUNWAY_BASE_URL", "https://api.dev.runwayml.com/v1").rstrip("/")
-
-
-def runway_url(path: str) -> str:
-    return f"{RUNWAY_BASE_URL}/{path.lstrip('/')}"
-
+# Runway API version header for compatibility
+RUNWAY_API_VERSION = "2024-11-06"
 
 # --- Logging setup ---------------------------------------------------------
 logger = logging.getLogger("runway_proxy")
@@ -78,8 +73,11 @@ def _token_refresh_loop():
         if hdr:
             try:
                 requests.get(
-                    runway_url("organization"),
-                    headers={"Authorization": hdr},
+                    "https://api.runwayml.com/v1/organization",
+                    headers={
+                        "Authorization": hdr,
+                        "X-Runway-Version": RUNWAY_API_VERSION,
+                    },
                     timeout=30,
                 )
                 logger.info("Token refresh check succeeded")
