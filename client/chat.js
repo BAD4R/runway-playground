@@ -29,6 +29,16 @@ let expandedTextEl = null;
 const REPLACE_MODE='Заменить человека на фото';
 const PROMPT_LIMIT=1000;
 
+function cleanPromptInput(el){
+  const start = el.selectionStart || 0;
+  const prefix = sanitizeText(el.value.slice(0, start)).slice(0, PROMPT_LIMIT);
+  let v = sanitizeText(el.value);
+  if(v.length > PROMPT_LIMIT) v = v.slice(0, PROMPT_LIMIT);
+  el.value = v;
+  const pos = Math.min(prefix.length, v.length);
+  el.setSelectionRange(pos,pos);
+}
+
 function sanitizeText(str){
   return str
     .replace(/[“”«»„‟"]/g,"'")
@@ -167,7 +177,7 @@ const MODEL_INFO = {
 };
 
 const AVAILABLE_MODES = [REPLACE_MODE];
-const REPLACE_PROMPT_DEFAULT = 'Make output strictly less than 1000 characters long. Describe the gender of the person in the photo, their exact pose (clearly for each body part - which body parts are visible and how much of them is within the frame or cut off, the position of each body part - which direction it is turned, how it is tilted, what it is resting on or under), the direction of the head, eyes, and gaze. Describe in detail their clothing (clearly for each element of clothing - which body part it covers and how much, what decorative elements are present on this clothing - in what quantity and where they are located and what they depict such as lace, buttons, straps, tags, patches, prints). Describe the actions the person is performing and in detail every object they are interacting with (whether it is a small item or a large bus). Describe the location where they are situated (what is visible in the background, which specific objects are in which places in the frame), other small details, the shooting parameters, the settings and the position in space of the camera that took the picture, any color filters or special effects if such are present. Do not describe the hairstyle, skin color, or hair color, the parameters of the face or body of the person. Provide the answer as continuous text (without lists, without your own comments, explanations, code, emoticons, special symbols, or words about how you understood my request).';
+const REPLACE_PROMPT_DEFAULT = "Make output strictly less than 1000 characters long, keep it closer to 700-800. Describe the gender of the person in the photo, their exact pose (clearly for each body part - which body parts are visible and how much of them is within the frame or cut off, the position of each body part - which direction it is turned, how it is tilted, what it is resting on or under), the direction of the head, eyes, and gaze. Describe in detail their clothing (clearly for each element of clothing - which body part it covers and how much, what decorative elements are present on this clothing - in what quantity and where they are located and what they depict such as lace, buttons, straps, tags, patches, prints). Describe the actions the person is performing and in detail every object they are interacting with (whether it is a small item or a large bus). Describe the location where they are situated (what is visible in the background, which specific objects are in which places in the frame), other small details, the shooting parameters, the settings and the position in space of the camera that took the picture, any color filters or special effects if such are present. Do not describe the hairstyle, skin color, or hair color, the parameters of the face or body of the person. Provide the answer as continuous text (without lists, without your own comments, explanations, code, emoticons, special symbols, or words about how you understood my request). In the beginning of output add 'Replace the person on the last image with person from first two (one of one two photos in total) images'.";
 
 function populateModelMenu(){
   modelMenu.innerHTML='';
@@ -376,32 +386,58 @@ function removeFile(slotName,index){
 
 function renderAttachPreview(){
   attachPreview.innerHTML='';
+  const addThumb=(uri,rmCb)=>{
+    if(!uri) return;
+    const wrap=document.createElement('div');
+    wrap.className='thumb';
+    wrap.style.backgroundImage="url('./images/empty-field-bg.png')";
+    const img=document.createElement('img');
+    img.src=uri;
+    img.addEventListener('click',()=>openViewer(uri,false));
+    wrap.appendChild(img);
+    const rm=document.createElement('button');
+    rm.textContent='×';
+    rm.addEventListener('click',e=>{e.stopPropagation();rmCb();});
+    wrap.appendChild(rm);
+    attachPreview.appendChild(wrap);
+  };
   Object.keys(currentFiles).forEach(slot=>{
     const val=currentFiles[slot];
     const arr=Array.isArray(val)?val:[val];
     arr.forEach((uri,i)=>{
-      if(!uri) return;
-      const wrap=document.createElement('div');
-      wrap.className='thumb';
-      wrap.style.backgroundImage="url('./images/empty-field-bg.png')";
-      let el;
       if(typeof uri==='string' && uri.startsWith('data:video')){
-        el=document.createElement('video');
-        el.src=uri; el.muted=true; el.loop=true; el.play();
+        const wrap=document.createElement('div');
+        wrap.className='thumb';
+        wrap.style.backgroundImage="url('./images/empty-field-bg.png')";
+        const video=document.createElement('video');
+        video.src=uri; video.muted=true; video.loop=true; video.play();
+        video.addEventListener('click',()=>openViewer(uri,true));
+        wrap.appendChild(video);
+        const rm=document.createElement('button');
+        rm.textContent='×';
+        rm.addEventListener('click',e=>{e.stopPropagation();removeFile(slot,i);});
+        wrap.appendChild(rm);
+        attachPreview.appendChild(wrap);
       }else{
-        el=document.createElement('img');
-        el.src=uri;
+        addThumb(uri,()=>removeFile(slot,i));
       }
-      el.addEventListener('click',()=>openViewer(uri,uri.startsWith('data:video')));
-      wrap.appendChild(el);
-      const rm=document.createElement('button');
-      rm.textContent='×';
-      rm.addEventListener('click',e=>{e.stopPropagation();removeFile(slot,i);});
-      wrap.appendChild(rm);
-      attachPreview.appendChild(wrap);
     });
   });
+  // replace mode previews
+  if(currentModes.includes(REPLACE_MODE)){
+    replaceInputs.targets.forEach((uri,i)=>{
+      addThumb(uri,()=>removeReplaceFile('rp-target',i));
+    });
+    addThumb(replaceInputs.reference,()=>removeReplaceFile('rp-reference',0));
+  }
   log('preview files', Object.keys(currentFiles).length);
+}
+
+function removeReplaceFile(slot,index){
+  if(slot==='rp-reference') replaceInputs.reference=null; else replaceInputs.targets[index]=null;
+  renderReplaceMenu();
+  renderAttachPreview();
+  updateChatState();
 }
 
 function updateModelDesc(){
@@ -655,11 +691,9 @@ function setStatus(el,text){
 
 function updateChatState(){
   if(!activeChat) return;
-  if(currentModes.includes(REPLACE_MODE)){
-    const ms=modeSettings[REPLACE_MODE]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2,reasoning:'high'};
-    ms.images=replaceInputs;
-    modeSettings[REPLACE_MODE]=ms;
-  }
+  const ms=modeSettings[REPLACE_MODE]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2,reasoning:'high'};
+  ms.images=replaceInputs;
+  modeSettings[REPLACE_MODE]=ms;
   api.updateChat(activeChat,{state:{model:currentModel,prompt:promptInput.value,files:currentFiles,ratio:currentRatio,duration:currentDuration,color:chatColor,modes:currentModes,modeSettings}});
 }
 
@@ -746,11 +780,7 @@ function openModeSettings(m){
     for(let i=1;i<=5;i++){opts+=`<option value="${i}" ${ms.tier==i?'selected':''}>Tier ${i} (${tiers[i]})</option>`;}
     modeSettingsContent.innerHTML=`<label><textarea id="modePrompt" rows="4" placeholder="Промпт">${ms.prompt}</textarea></label><label><select id="modeTier">${opts}</select></label><div id="reasoningWrap"></div><p class="mode-desc">Составляет детальное описание референса через ChatGPT и отправляет запрос к Runway для замены личности на фото</p>`;
     const promptEl=document.getElementById('modePrompt');
-    promptEl.addEventListener('input',()=>{
-      let v=sanitizeText(promptEl.value);
-      if(v.length>PROMPT_LIMIT) v=v.slice(0,PROMPT_LIMIT);
-      promptEl.value=v;
-    });
+    promptEl.addEventListener('input',()=>cleanPromptInput(promptEl));
     const tierSel=document.getElementById('modeTier');
     const reasonWrap=document.getElementById('reasoningWrap');
     const renderReasoning=()=>{
@@ -1097,9 +1127,7 @@ export function init(){
   ratioBtn.addEventListener('click',e=>{e.stopPropagation();showRatioMenu();});
   durationBtn.addEventListener('click',e=>{e.stopPropagation();showDurationMenu();});
   promptInput.addEventListener('input',()=>{
-    let v=sanitizeText(promptInput.value);
-    if(v.length>PROMPT_LIMIT) v=v.slice(0,PROMPT_LIMIT);
-    promptInput.value=v;
+    cleanPromptInput(promptInput);
     autoResize(promptInput);
     updatePromptCounter();
     updateChatState();
