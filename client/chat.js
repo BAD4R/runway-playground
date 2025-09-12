@@ -177,7 +177,8 @@ const MODEL_INFO = {
 };
 
 const AVAILABLE_MODES = [REPLACE_MODE];
-const REPLACE_PROMPT_DEFAULT = "Make output strictly less than 1000 characters long, keep it closer to 700-800. Describe the gender of the person in the photo, their exact pose (clearly for each body part - which body parts are visible and how much of them is within the frame or cut off, the position of each body part - which direction it is turned, how it is tilted, what it is resting on or under), the direction of the head, eyes, and gaze. Describe in detail their clothing (clearly for each element of clothing - which body part it covers and how much, what decorative elements are present on this clothing - in what quantity and where they are located and what they depict such as lace, buttons, straps, tags, patches, prints). Describe the actions the person is performing and in detail every object they are interacting with (whether it is a small item or a large bus). Describe the location where they are situated (what is visible in the background, which specific objects are in which places in the frame), other small details, the shooting parameters, the settings and the position in space of the camera that took the picture, any color filters or special effects if such are present. Do not describe the hairstyle, skin color, or hair color, the parameters of the face or body of the person. Provide the answer as continuous text (without lists, without your own comments, explanations, code, emoticons, special symbols, or words about how you understood my request). In the beginning of output add 'Replace the person on the last image with person from first two (one of one two photos in total) images'.";
+const REPLACE_BASE_PROMPT = 'Replace the person on the last image with person from first two (one of one two photos in total) images';
+const REPLACE_PROMPT_DEFAULT = "Make output strictly less than 1000 characters long, keep it closer to 700-800. Describe the gender of the person in the photo, their exact pose (clearly for each body part - which body parts are visible and how much of them is within the frame or cut off, the position of each body part - which direction it is turned, how it is tilted, what it is resting on or under), the direction of the head, eyes, and gaze. Describe in detail their clothing (clearly for each element of clothing - which body part it covers and how much, what decorative elements are present on this clothing - in what quantity and where they are located and what they depict such as lace, buttons, straps, tags, patches, prints). Describe the actions the person is performing and in detail every object they are interacting with (whether it is a small item or a large bus). Describe the location where they are situated (what is visible in the background, which specific objects are in which places in the frame), other small details, the shooting parameters, the settings and the position in space of the camera that took the picture, any color filters or special effects if such are present. Do not describe the hairstyle, skin color, or hair color, the parameters of the face or body of the person. Provide the answer as continuous text (without lists, without your own comments, explanations, code, emoticons, special symbols, or words about how you understood my request).";
 
 function populateModelMenu(){
   modelMenu.innerHTML='';
@@ -691,7 +692,7 @@ function setStatus(el,text){
 
 function updateChatState(){
   if(!activeChat) return;
-  const ms=modeSettings[REPLACE_MODE]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2,reasoning:'high'};
+  const ms=modeSettings[REPLACE_MODE]||{prompt:REPLACE_PROMPT_DEFAULT,basePrompt:REPLACE_BASE_PROMPT,tier:2,reasoning:'high'};
   ms.images=replaceInputs;
   modeSettings[REPLACE_MODE]=ms;
   api.updateChat(activeChat,{state:{model:currentModel,prompt:promptInput.value,files:currentFiles,ratio:currentRatio,duration:currentDuration,color:chatColor,modes:currentModes,modeSettings}});
@@ -774,13 +775,16 @@ let editingMode=null;
 function openModeSettings(m){
   editingMode=m;
   if(m===REPLACE_MODE){
-    const ms=modeSettings[m]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2,reasoning:'high'};
+    const ms=modeSettings[m]||{prompt:REPLACE_PROMPT_DEFAULT,basePrompt:REPLACE_BASE_PROMPT,tier:2,reasoning:'high'};
     const tiers=getOpenAITiers();
     let opts='';
     for(let i=1;i<=5;i++){opts+=`<option value="${i}" ${ms.tier==i?'selected':''}>Tier ${i} (${tiers[i]})</option>`;}
-    modeSettingsContent.innerHTML=`<label><textarea id="modePrompt" rows="4" placeholder="Промпт">${ms.prompt}</textarea></label><label><select id="modeTier">${opts}</select></label><div id="reasoningWrap"></div><p class="mode-desc">Составляет детальное описание референса через ChatGPT и отправляет запрос к Runway для замены личности на фото</p>`;
+    const base=sanitizeText(ms.basePrompt||REPLACE_BASE_PROMPT);
+    modeSettingsContent.innerHTML=`<label><textarea id="modePrompt" rows="4" placeholder="Промпт">${ms.prompt}</textarea></label><label><input id="modeBasePrompt" type="text" placeholder="Основной промпт для Runway" value="${base}"/></label><label><select id="modeTier">${opts}</select></label><div id="reasoningWrap"></div><p class="mode-desc">Составляет детальное описание референса через ChatGPT и отправляет запрос к Runway для замены личности на фото</p>`;
     const promptEl=document.getElementById('modePrompt');
     promptEl.addEventListener('input',()=>cleanPromptInput(promptEl));
+    const baseEl=document.getElementById('modeBasePrompt');
+    baseEl.addEventListener('input',()=>cleanPromptInput(baseEl));
     const tierSel=document.getElementById('modeTier');
     const reasonWrap=document.getElementById('reasoningWrap');
     const renderReasoning=()=>{
@@ -827,7 +831,10 @@ async function handleReplaceSend(){
   const openaiKey=getOpenAIKey();
   if(!openaiKey){showToast('Введите OpenAI ключ');return;}
   if(!activeChat){showToast('Нет активного чата');return;}
-  const ms=modeSettings[REPLACE_MODE]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2,reasoning:'high',images:replaceInputs};
+  const chatId=activeChat;
+  const modelRunway=currentModel;
+  const ratio=currentRatio;
+  const ms=modeSettings[REPLACE_MODE]||{prompt:REPLACE_PROMPT_DEFAULT,basePrompt:REPLACE_BASE_PROMPT,tier:2,reasoning:'high',images:replaceInputs};
   const imgs=ms.images||replaceInputs;
   if(!(imgs.reference && imgs.targets.some(x=>x))){showToast('Нужен хотя бы один исходник И референс');return;}
   const tiers=getOpenAITiers();
@@ -835,20 +842,25 @@ async function handleReplaceSend(){
   const ref=imgs.reference; // full data URI
   const promptText=sanitizeText(ms.prompt).slice(0,PROMPT_LIMIT);
   const userMsg={role:'user',content:promptText,attachments:[...imgs.targets.filter(Boolean),imgs.reference]};
-  await api.addMessage(activeChat,userMsg);
-  messagesEl.querySelector('.model-desc')?.remove();
-  messagesEl.appendChild(createMessageEl(userMsg));
+  await api.addMessage(chatId,userMsg);
+  if(chatId===activeChat){
+    messagesEl.querySelector('.model-desc')?.remove();
+    messagesEl.appendChild(createMessageEl(userMsg));
+  }
   const placeholder={role:'assistant',content:'',status:'отправка',attachments:[],params:{model,mode:REPLACE_MODE,cost:null}};
-  const saved=await api.addMessage(activeChat,placeholder);
+  const saved=await api.addMessage(chatId,placeholder);
   placeholder.id=saved.id;
-  const placeholderEl=createMessageEl(placeholder);
-  messagesEl.appendChild(placeholderEl); messagesEl.scrollTop=messagesEl.scrollHeight;
+  let placeholderEl=null;
+  if(chatId===activeChat){
+    placeholderEl=createMessageEl(placeholder);
+    messagesEl.appendChild(placeholderEl); messagesEl.scrollTop=messagesEl.scrollHeight;
+  }
   try{
     const body={model,input:[{role:'user',content:[{type:'input_text',text:promptText},{type:'input_image',image_url:ref}]}]};
     if(ms.reasoning) body.reasoning={effort:ms.reasoning};
     placeholder.status='обработка';
-    setStatus(placeholderEl,placeholder.status);
-    await api.updateMessage(activeChat,placeholder.id,{status:placeholder.status});
+    if(placeholderEl) setStatus(placeholderEl,placeholder.status);
+    await api.updateMessage(chatId,placeholder.id,{status:placeholder.status});
     const res=await api.callOpenAI(openaiKey,body);
     placeholder.status='готово';
     const outs=Array.isArray(res?.output)
@@ -879,34 +891,39 @@ async function handleReplaceSend(){
     placeholder.content=e.message;
   }
   placeholder.content=sanitizeText(placeholder.content).slice(0,PROMPT_LIMIT);
-  setStatus(placeholderEl,placeholder.status);
-  await api.updateMessage(activeChat,placeholder.id,{status:placeholder.status,content:placeholder.content,attachments:placeholder.attachments,params:placeholder.params});
-  placeholderEl.replaceWith(createMessageEl(placeholder));
+  if(placeholderEl) setStatus(placeholderEl,placeholder.status);
+  await api.updateMessage(chatId,placeholder.id,{status:placeholder.status,content:placeholder.content,attachments:placeholder.attachments,params:placeholder.params});
+  if(placeholderEl) placeholderEl.replaceWith(createMessageEl(placeholder));
   if(placeholder.status!=='готово') return;
   const apiKey=getRunwayKey();
-  const info=MODEL_INFO[currentModel];
+  const info=MODEL_INFO[modelRunway];
+  const basePrompt=sanitizeText(ms.basePrompt||REPLACE_BASE_PROMPT).slice(0,PROMPT_LIMIT);
+  const finalPrompt=`${basePrompt} ${placeholder.content}`.trim();
   const images=[...imgs.targets.filter(Boolean),imgs.reference].map(u=>({uri:u}));
-  const payload={model:currentModel,promptText:placeholder.content,ratio:currentRatio||info.ratios?.[0],referenceImages:images};
-  const credits=info.cost({ratio:currentRatio})||0;
-  const params={model:info.label,mode:REPLACE_MODE,ratio:currentRatio||info.ratios?.[0],credits};
+  const payload={model:modelRunway,promptText:finalPrompt,ratio:ratio||info.ratios?.[0],referenceImages:images};
+  const credits=info.cost({ratio})||0;
+  const params={model:info.label,mode:REPLACE_MODE,ratio:ratio||info.ratios?.[0],credits};
   const ph={role:'assistant',content:'',status:'отправка',attachments:[],params};
-  const saved2=await api.addMessage(activeChat,ph);
+  const saved2=await api.addMessage(chatId,ph);
   ph.id=saved2.id;
-  const phEl=createMessageEl(ph); messagesEl.appendChild(phEl); messagesEl.scrollTop=messagesEl.scrollHeight;
+  let phEl=null;
+  if(chatId===activeChat){
+    phEl=createMessageEl(ph); messagesEl.appendChild(phEl); messagesEl.scrollTop=messagesEl.scrollHeight;
+  }
   try{
     const res2=await api.callRunway(apiKey,info.endpoint,payload);
-    ph.status='обработка'; setStatus(phEl,ph.status); await api.updateMessage(activeChat,ph.id,{status:ph.status});
+    ph.status='обработка'; if(phEl) setStatus(phEl,ph.status); await api.updateMessage(chatId,ph.id,{status:ph.status});
     const task=await api.waitForTask(apiKey,res2.id,t=>{
-      if(t.status){const pct=t.progress!=null?Math.floor(t.progress*100):null;ph.status=pct!=null?`обработка ${pct}%`:'обработка';setStatus(phEl,ph.status);api.updateMessage(activeChat,ph.id,{status:ph.status});}
+      if(t.status){const pct=t.progress!=null?Math.floor(t.progress*100):null;ph.status=pct!=null?`обработка ${pct}%`:'обработка';if(phEl) setStatus(phEl,ph.status);api.updateMessage(chatId,ph.id,{status:ph.status});}
     });
     if(task.status==='SUCCEEDED' && task.output){
       ph.status='готово';
       ph.attachments=await Promise.all(task.output.map(async u=>{if(typeof u==='string'&&u.startsWith('data:')) return u; try{const r=await fetch(u);const b=await r.blob();return await new Promise(res=>{const fr=new FileReader();fr.onloadend=()=>res(fr.result);fr.readAsDataURL(b);});}catch{return u;} }));
     }else{ph.status='ошибка';ph.content='Ошибка генерации';}
   }catch(e){ph.status='ошибка';ph.content=e.message;}
-  setStatus(phEl,ph.status);
-  await api.updateMessage(activeChat,ph.id,{status:ph.status,content:ph.content,attachments:ph.attachments,params:ph.params});
-  phEl.replaceWith(createMessageEl(ph));
+  if(phEl) setStatus(phEl,ph.status);
+  await api.updateMessage(chatId,ph.id,{status:ph.status,content:ph.content,attachments:ph.attachments,params:ph.params});
+  if(phEl) phEl.replaceWith(createMessageEl(ph));
   updateCost();
   refreshBalance();
 }
@@ -919,44 +936,54 @@ async function handleSend(){
   const apiKey=getRunwayKey();
   if(!apiKey){ showToast('Введите API ключ'); return; }
   if(!activeChat){ showToast('Нет активного чата'); return; }
+  const chatId=activeChat;
   let prompt=sanitizeText(promptInput.value.trim());
   if(prompt.length>PROMPT_LIMIT) prompt=prompt.slice(0,PROMPT_LIMIT);
-  const info=MODEL_INFO[currentModel];
+  const model=currentModel;
+  const ratio=currentRatio;
+  const duration=currentDuration;
+  const files=JSON.parse(JSON.stringify(currentFiles));
+  const info=MODEL_INFO[model];
   if(info.prompt && !prompt){ showToast('Введите промпт'); return; }
   if(info.slots){
     for(const s of info.slots){
       if(s.required){
-        const val=currentFiles[s.name];
+        const val=files[s.name];
         const arr=s.multiple? (Array.isArray(val)?val.filter(Boolean):[]) : (val?[val]:[]);
         if(arr.length===0){ showToast(`Добавьте ${s.label.toLowerCase()}`); return; }
       }
     }
   }
-  const payload=await buildPayload(currentModel,prompt,currentFiles);
-  const userMsg={role:'user',content:prompt,attachments:collectAllFiles()};
-  await api.addMessage(activeChat,userMsg);
-  messagesEl.querySelector('.model-desc')?.remove();
-  messagesEl.appendChild(createMessageEl(userMsg));
+  const payload=await buildPayload(model,prompt,files,ratio,duration);
+  const userMsg={role:'user',content:prompt,attachments:collectAllFiles(files)};
+  await api.addMessage(chatId,userMsg);
+  if(chatId===activeChat){
+    messagesEl.querySelector('.model-desc')?.remove();
+    messagesEl.appendChild(createMessageEl(userMsg));
+  }
   promptInput.value=''; autoResize(promptInput); updatePromptCounter(); currentFiles={}; renderAttachMenu(); renderAttachPreview(); updateChatState();
-  const credits=info.cost({ratio:currentRatio,duration:currentDuration})||0;
-  const params={model:info.label,ratio:currentRatio||info.ratios?.[0],duration:currentDuration,credits};
+  const credits=info.cost({ratio,duration})||0;
+  const params={model:info.label,ratio:ratio||info.ratios?.[0],duration,credits};
   const placeholder={role:'assistant',content:'',status:'отправка',attachments:[],params};
-  const saved=await api.addMessage(activeChat,placeholder);
+  const saved=await api.addMessage(chatId,placeholder);
   placeholder.id=saved.id;
-  const placeholderEl=createMessageEl(placeholder);
-  messagesEl.appendChild(placeholderEl);
-  messagesEl.scrollTop=messagesEl.scrollHeight;
+  let placeholderEl=null;
+  if(chatId===activeChat){
+    placeholderEl=createMessageEl(placeholder);
+    messagesEl.appendChild(placeholderEl);
+    messagesEl.scrollTop=messagesEl.scrollHeight;
+  }
   try{
     const res=await api.callRunway(apiKey,info.endpoint,payload);
     placeholder.status='обработка';
-    setStatus(placeholderEl,placeholder.status);
-    await api.updateMessage(activeChat,placeholder.id,{status:placeholder.status});
+    if(placeholderEl) setStatus(placeholderEl,placeholder.status);
+    await api.updateMessage(chatId,placeholder.id,{status:placeholder.status});
     const task=await api.waitForTask(apiKey,res.id,t=>{
       if(t.status){
         const pct = t.progress!=null ? Math.floor(t.progress*100) : null;
         placeholder.status = pct!=null ? `обработка ${pct}%` : 'обработка';
-        setStatus(placeholderEl,placeholder.status);
-        api.updateMessage(activeChat,placeholder.id,{status:placeholder.status});
+        if(placeholderEl) setStatus(placeholderEl,placeholder.status);
+        api.updateMessage(chatId,placeholder.id,{status:placeholder.status});
       }
     });
     if(task.status==='SUCCEEDED' && task.output){
@@ -977,32 +1004,32 @@ async function handleSend(){
     placeholder.status='ошибка';
     placeholder.content=e.message;
   }
-  setStatus(placeholderEl,placeholder.status);
-  await api.updateMessage(activeChat,placeholder.id,{status:placeholder.status,content:placeholder.content,attachments:placeholder.attachments,params:placeholder.params});
-  placeholderEl.replaceWith(createMessageEl(placeholder));
+  if(placeholderEl) setStatus(placeholderEl,placeholder.status);
+  await api.updateMessage(chatId,placeholder.id,{status:placeholder.status,content:placeholder.content,attachments:placeholder.attachments,params:placeholder.params});
+  if(placeholderEl) placeholderEl.replaceWith(createMessageEl(placeholder));
   updateCost();
   refreshBalance();
 }
 
-function collectAllFiles(){
+function collectAllFiles(filesObj=currentFiles){
   const arr=[];
-  Object.values(currentFiles).forEach(v=>{ if(Array.isArray(v)) v.forEach(x=>{if(x) arr.push(x);}); else if(v) arr.push(v);});
+  Object.values(filesObj).forEach(v=>{ if(Array.isArray(v)) v.forEach(x=>{if(x) arr.push(x);}); else if(v) arr.push(v);});
   return arr;
 }
 
-async function buildPayload(model,prompt,files){
+async function buildPayload(model,prompt,files,ratio,duration){
   const info=MODEL_INFO[model];
   switch(info.endpoint){
     case 'text_to_image':
-      return {model,promptText:prompt,ratio:currentRatio||info.ratios?.[0],referenceImages:(files.referenceImages||[]).filter(Boolean).map(u=>({uri:u}))};
+      return {model,promptText:prompt,ratio:ratio||info.ratios?.[0],referenceImages:(files.referenceImages||[]).filter(Boolean).map(u=>({uri:u}))};
     case 'image_to_video':
-      return {model,promptText:prompt,ratio:currentRatio||info.ratios?.[0],duration:currentDuration||info.durations?.[0],promptImage:files.promptImage};
+      return {model,promptText:prompt,ratio:ratio||info.ratios?.[0],duration:duration||info.durations?.[0],promptImage:files.promptImage};
     case 'video_to_video':
-      return {model,promptText:prompt,ratio:currentRatio||info.ratios?.[0],videoUri:files.videoUri,references:(files.references||[]).filter(Boolean).map(u=>({type:'image',uri:u}))};
+      return {model,promptText:prompt,ratio:ratio||info.ratios?.[0],videoUri:files.videoUri,references:(files.references||[]).filter(Boolean).map(u=>({type:'image',uri:u}))};
     case 'video_upscale':
       return {model,videoUri:files.videoUri};
     case 'character_performance':
-      return {model,ratio:currentRatio||info.ratios?.[0],character:{type:'image',uri:files.character},reference:{type:'video',uri:files.reference}};
+      return {model,ratio:ratio||info.ratios?.[0],character:{type:'image',uri:files.character},reference:{type:'video',uri:files.reference}};
     default:
       return {model,promptText:prompt};
   }
@@ -1088,10 +1115,11 @@ export function init(){
   modeSaveBtn.addEventListener('click',()=>{
     if(editingMode===REPLACE_MODE){
       let prompt=sanitizeText(document.getElementById('modePrompt').value.trim()).slice(0,PROMPT_LIMIT);
+      let basePrompt=sanitizeText(document.getElementById('modeBasePrompt').value.trim()).slice(0,PROMPT_LIMIT);
       const tier=parseInt(document.getElementById('modeTier').value,10);
       const reasoningEl=document.getElementById('modeReasoning');
       const reasoning=reasoningEl?reasoningEl.value:undefined;
-      modeSettings[REPLACE_MODE]={prompt:prompt||REPLACE_PROMPT_DEFAULT,tier,reasoning,images:replaceInputs};
+      modeSettings[REPLACE_MODE]={prompt:prompt||REPLACE_PROMPT_DEFAULT,basePrompt:basePrompt||REPLACE_BASE_PROMPT,tier,reasoning,images:replaceInputs};
     }else{
       modeSettings[editingMode]=true;
     }
