@@ -604,6 +604,7 @@ function updateChatState(){
     ms.images=replaceInputs;
     modeSettings[REPLACE_MODE]=ms;
   }
+
   api.updateChat(activeChat,{state:{model:currentModel,prompt:promptInput.value,files:currentFiles,ratio:currentRatio,duration:currentDuration,color:chatColor,modes:currentModes,modeSettings}});
 }
 
