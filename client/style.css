@@ -73,6 +73,8 @@ html,body{
 .message.user{align-self:flex-end;background:var(--accent-bg);color:#222;}
 .message.assistant{align-self:flex-start;background:#f2f2f2;}
 .msg-text.collapsible{overflow:hidden;position:relative;transition:max-height .3s;}
+.msg-text.collapsible.collapsed{max-height:160px;}
+.msg-text.collapsible.expanded{max-height:10000px;}
 .msg-text.collapsed::after{content:'';position:absolute;left:0;right:0;bottom:0;height:24px;background:linear-gradient(to bottom, rgba(255,255,255,0), #fff);pointer-events:none;}
 .message.user .msg-text.collapsed::after{background:linear-gradient(to bottom, rgba(255,255,255,0), var(--accent-bg));pointer-events:none;}
 .msg-header{display:flex;align-items:center;margin-bottom:4px;}
@@ -87,7 +89,9 @@ html,body{
 
 .composer{padding:12px;border-top:1px solid var(--sidebar-border);display:flex;flex-direction:column;gap:8px;}
 
-#promptInput{border:1px solid var(--sidebar-border);border-radius:8px;padding:8px;resize:none;font-family:inherit;font-size:14px;min-height:32px;max-height:120px;overflow-y:auto;}
+.prompt-wrapper{position:relative;}
+#promptInput{border:1px solid var(--sidebar-border);border-radius:8px;padding:8px;resize:none;font-family:inherit;font-size:14px;min-height:32px;max-height:120px;overflow-y:auto;width:100%;box-sizing:border-box;}
+#promptCounter{position:absolute;right:8px;bottom:4px;font-size:10px;color:#888;}
 
 .controls{display:flex;align-items:center;justify-content:space-between;}
 .controls .left{display:flex;gap:8px;}
@@ -132,9 +136,12 @@ html,body{
 .modal-content.settings input,
 .modal-content.settings select,
 .modal-content.settings textarea,
+#modeSettings .modal-content{max-width:360px;}
+#modeSettings label{display:block;}
 #modeSettings input,
 #modeSettings select,
-#modeSettings textarea{border:1px solid var(--sidebar-border);border-radius:8px;padding:8px;font-family:inherit;}
+#modeSettings textarea{border:1px solid var(--sidebar-border);border-radius:8px;padding:8px;font-family:inherit;width:100%;box-sizing:border-box;}
+#modeSettings .mode-desc{color:#555;font-size:13px;}
 .modal-content.settings .actions button,
 #modeSettings .actions button{border:1px solid var(--accent);border-radius:8px;background:var(--accent-bg);cursor:pointer;padding:8px 12px;color:#000;}
 .modal-content.settings .actions button:hover,
@@ -189,11 +196,11 @@ html,body{
 .icon-btn.disabled{opacity:0.4;pointer-events:none;}
 .popup button.disabled{opacity:0.4;pointer-events:none;}
 
-.replace-menu{display:flex;gap:8px;padding:8px;align-items:center;}
+.replace-menu{display:flex;gap:8px;padding:8px;align-items:center;flex-direction:row;}
 .replace-menu .replace-slot{width:80px;height:80px;background:#eee;border-radius:6px;display:flex;align-items:center;justify-content:center;position:relative;cursor:pointer;}
 .replace-menu .replace-slot.filled{background:url('./images/empty-field-bg.png');background-size:cover;background-position:center;}
 .replace-menu .replace-slot img{max-width:100%;max-height:100%;object-fit:cover;border-radius:6px;}
-.replace-menu .replace-slot .remove{position:absolute;top:2px;right:2px;background:#fff;border:none;border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.replace-menu .replace-slot .remove{position:absolute;top:2px;right:2px;background:#fff;border:none;border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;font-size:12px;line-height:16px;}
 .replace-menu .arrow{align-self:center;width:24px;height:24px;}
 
 .viewer-controls{display:flex;align-items:center;gap:8px;margin-top:8px;}

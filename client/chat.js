@@ -27,6 +27,24 @@ let openaiUsageHistory = [];
 let expandedTextEl = null;
 
 const REPLACE_MODE='Заменить человека на фото';
+const PROMPT_LIMIT=1000;
+
+function cleanPromptInput(el){
+  const start = el.selectionStart || 0;
+  const prefix = sanitizeText(el.value.slice(0, start)).slice(0, PROMPT_LIMIT);
+  let v = sanitizeText(el.value);
+  if(v.length > PROMPT_LIMIT) v = v.slice(0, PROMPT_LIMIT);
+  el.value = v;
+  const pos = Math.min(prefix.length, v.length);
+  el.setSelectionRange(pos,pos);
+}
+
+function sanitizeText(str){
+  return str
+    .replace(/[“”«»„‟"]/g,"'")
+    .replace(/[’‘‚‛]/g,"'")
+    .replace(/[–—‑]/g,'-');
+}
 
 function withAlpha(hex, alpha){
   const r=parseInt(hex.slice(1,3),16);
@@ -38,6 +56,11 @@ function withAlpha(hex, alpha){
 function autoResize(el){
   el.style.height='auto';
   el.style.height=Math.min(el.scrollHeight,120)+'px';
+}
+
+function updatePromptCounter(){
+  const cnt=document.getElementById('promptCounter');
+  if(cnt) cnt.textContent=`${promptInput.value.length}/${PROMPT_LIMIT}`;
 }
 
 function openViewer(src,isVideo){
@@ -154,7 +177,7 @@ const MODEL_INFO = {
 };
 
 const AVAILABLE_MODES = [REPLACE_MODE];
-const REPLACE_PROMPT_DEFAULT = 'Describe the gender of the person in the photo, their exact pose (clearly for each body part - which body parts are visible and how much of them is within the frame or cut off, the position of each body part - which direction it is turned, how it is tilted, what it is resting on or under), the direction of the head, eyes, and gaze. Describe in detail their clothing (clearly for each element of clothing - which body part it covers and how much, what decorative elements are present on this clothing - in what quantity and where they are located and what they depict such as lace, buttons, straps, tags, patches, prints). Describe the actions the person is performing and in detail every object they are interacting with (whether it is a small item or a large bus). Describe the location where they are situated (what is visible in the background, which specific objects are in which places in the frame), other small details, the shooting parameters, the settings and the position in space of the camera that took the picture, any color filters or special effects if such are present. Do not describe the hairstyle, skin color, or hair color, the parameters of the face or body of the person. Provide the answer as continuous text (without lists, without your own comments, explanations, code, emoticons, special symbols, or words about how you understood my request).';
+const REPLACE_PROMPT_DEFAULT = "Make output strictly less than 1000 characters long, keep it closer to 700-800. Describe the gender of the person in the photo, their exact pose (clearly for each body part - which body parts are visible and how much of them is within the frame or cut off, the position of each body part - which direction it is turned, how it is tilted, what it is resting on or under), the direction of the head, eyes, and gaze. Describe in detail their clothing (clearly for each element of clothing - which body part it covers and how much, what decorative elements are present on this clothing - in what quantity and where they are located and what they depict such as lace, buttons, straps, tags, patches, prints). Describe the actions the person is performing and in detail every object they are interacting with (whether it is a small item or a large bus). Describe the location where they are situated (what is visible in the background, which specific objects are in which places in the frame), other small details, the shooting parameters, the settings and the position in space of the camera that took the picture, any color filters or special effects if such are present. Do not describe the hairstyle, skin color, or hair color, the parameters of the face or body of the person. Provide the answer as continuous text (without lists, without your own comments, explanations, code, emoticons, special symbols, or words about how you understood my request). In the beginning of output add 'Replace the person on the last image with person from first two (one of one two photos in total) images'.";
 
 function populateModelMenu(){
   modelMenu.innerHTML='';
@@ -363,32 +386,58 @@ function removeFile(slotName,index){
 
 function renderAttachPreview(){
   attachPreview.innerHTML='';
+  const addThumb=(uri,rmCb)=>{
+    if(!uri) return;
+    const wrap=document.createElement('div');
+    wrap.className='thumb';
+    wrap.style.backgroundImage="url('./images/empty-field-bg.png')";
+    const img=document.createElement('img');
+    img.src=uri;
+    img.addEventListener('click',()=>openViewer(uri,false));
+    wrap.appendChild(img);
+    const rm=document.createElement('button');
+    rm.textContent='×';
+    rm.addEventListener('click',e=>{e.stopPropagation();rmCb();});
+    wrap.appendChild(rm);
+    attachPreview.appendChild(wrap);
+  };
   Object.keys(currentFiles).forEach(slot=>{
     const val=currentFiles[slot];
     const arr=Array.isArray(val)?val:[val];
     arr.forEach((uri,i)=>{
-      if(!uri) return;
-      const wrap=document.createElement('div');
-      wrap.className='thumb';
-      wrap.style.backgroundImage="url('./images/empty-field-bg.png')";
-      let el;
       if(typeof uri==='string' && uri.startsWith('data:video')){
-        el=document.createElement('video');
-        el.src=uri; el.muted=true; el.loop=true; el.play();
+        const wrap=document.createElement('div');
+        wrap.className='thumb';
+        wrap.style.backgroundImage="url('./images/empty-field-bg.png')";
+        const video=document.createElement('video');
+        video.src=uri; video.muted=true; video.loop=true; video.play();
+        video.addEventListener('click',()=>openViewer(uri,true));
+        wrap.appendChild(video);
+        const rm=document.createElement('button');
+        rm.textContent='×';
+        rm.addEventListener('click',e=>{e.stopPropagation();removeFile(slot,i);});
+        wrap.appendChild(rm);
+        attachPreview.appendChild(wrap);
       }else{
-        el=document.createElement('img');
-        el.src=uri;
+        addThumb(uri,()=>removeFile(slot,i));
       }
-      el.addEventListener('click',()=>openViewer(uri,uri.startsWith('data:video')));
-      wrap.appendChild(el);
-      const rm=document.createElement('button');
-      rm.textContent='×';
-      rm.addEventListener('click',e=>{e.stopPropagation();removeFile(slot,i);});
-      wrap.appendChild(rm);
-      attachPreview.appendChild(wrap);
     });
   });
+  // replace mode previews
+  if(currentModes.includes(REPLACE_MODE)){
+    replaceInputs.targets.forEach((uri,i)=>{
+      addThumb(uri,()=>removeReplaceFile('rp-target',i));
+    });
+    addThumb(replaceInputs.reference,()=>removeReplaceFile('rp-reference',0));
+  }
   log('preview files', Object.keys(currentFiles).length);
+}
+
+function removeReplaceFile(slot,index){
+  if(slot==='rp-reference') replaceInputs.reference=null; else replaceInputs.targets[index]=null;
+  renderReplaceMenu();
+  renderAttachPreview();
+  updateChatState();
 }
 
 function updateModelDesc(){
@@ -463,7 +512,9 @@ async function selectChat(id){
   if(id===activeChat) return;
   const chat=await api.getChat(id);
   const msgs=await api.listMessages(id);
-  promptInput.value=chat.state.prompt||'';
+  promptInput.value=sanitizeText(chat.state.prompt||'').slice(0,PROMPT_LIMIT);
+  autoResize(promptInput);
+  updatePromptCounter();
   currentModel=chat.state.model||currentModel;
   currentFiles=chat.state.files||{};
   currentRatio=chat.state.ratio||null;
@@ -534,21 +585,6 @@ function createMessageEl(m){
       shortTemp.className='msg-text';
       shortTemp.style.visibility='hidden';
       shortTemp.style.position='absolute';
-      shortTemp.textContent=m.content.slice(0,800);
-      document.body.appendChild(shortTemp);
-      const collapsed=shortTemp.scrollHeight;
-      document.body.removeChild(shortTemp);
-      const fullTemp=document.createElement('p');
-      fullTemp.className='msg-text';
-      fullTemp.style.visibility='hidden';
-      fullTemp.style.position='absolute';
-      fullTemp.textContent=m.content;
-      document.body.appendChild(fullTemp);
-      const fullH=fullTemp.scrollHeight;
-      document.body.removeChild(fullTemp);
-      p.style.maxHeight=collapsed+'px';
-      p.dataset.collapsedHeight=collapsed;
-      p.dataset.fullHeight=fullH;
       p.classList.add('collapsible','collapsed');
       p.addEventListener('click',e=>{e.stopPropagation(); expandText(p);});
     }
@@ -613,14 +649,12 @@ function expandText(el){
   if(expandedTextEl && expandedTextEl!==el) collapseText(expandedTextEl);
   el.classList.remove('collapsed');
   el.classList.add('expanded');
-  el.style.maxHeight = el.dataset.fullHeight + 'px';
   expandedTextEl = el;
 }
 
 function collapseText(el){
   el.classList.remove('expanded');
   el.classList.add('collapsed');
-  el.style.maxHeight = el.dataset.collapsedHeight + 'px';
   if(expandedTextEl===el) expandedTextEl=null;
 }
 
@@ -657,11 +691,9 @@ function setStatus(el,text){
 
 function updateChatState(){
   if(!activeChat) return;
-  if(currentModes.includes(REPLACE_MODE)){
-    const ms=modeSettings[REPLACE_MODE]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2};
-    ms.images=replaceInputs;
-    modeSettings[REPLACE_MODE]=ms;
-  }
+  const ms=modeSettings[REPLACE_MODE]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2,reasoning:'high'};
+  ms.images=replaceInputs;
+  modeSettings[REPLACE_MODE]=ms;
   api.updateChat(activeChat,{state:{model:currentModel,prompt:promptInput.value,files:currentFiles,ratio:currentRatio,duration:currentDuration,color:chatColor,modes:currentModes,modeSettings}});
 }
 
@@ -742,11 +774,26 @@ let editingMode=null;
 function openModeSettings(m){
   editingMode=m;
   if(m===REPLACE_MODE){
-    const ms=modeSettings[m]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2};
+    const ms=modeSettings[m]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2,reasoning:'high'};
     const tiers=getOpenAITiers();
     let opts='';
     for(let i=1;i<=5;i++){opts+=`<option value="${i}" ${ms.tier==i?'selected':''}>Tier ${i} (${tiers[i]})</option>`;}
-    modeSettingsContent.innerHTML=`<p>Описание работы режима - 'Составляет детальное описание референса через ChatGPT и отправляет запрос к Runway для замены личности на фото'</p><label>Промпт:<br/><textarea id="modePrompt" rows="4">${ms.prompt}</textarea></label><label>Тир модели:<br/><select id="modeTier">${opts}</select></label>`;
+    modeSettingsContent.innerHTML=`<label><textarea id="modePrompt" rows="4" placeholder="Промпт">${ms.prompt}</textarea></label><label><select id="modeTier">${opts}</select></label><div id="reasoningWrap"></div><p class="mode-desc">Составляет детальное описание референса через ChatGPT и отправляет запрос к Runway для замены личности на фото</p>`;
+    const promptEl=document.getElementById('modePrompt');
+    promptEl.addEventListener('input',()=>cleanPromptInput(promptEl));
+    const tierSel=document.getElementById('modeTier');
+    const reasonWrap=document.getElementById('reasoningWrap');
+    const renderReasoning=()=>{
+      const model=tiers[parseInt(tierSel.value,10)];
+      if(/^o/.test(model)){
+        let ropts=['low','medium','high'].map(r=>`<option value="${r}" ${ms.reasoning===r?'selected':''}>${r}</option>`).join('');
+        reasonWrap.innerHTML=`<label><select id="modeReasoning">${ropts}</select></label>`;
+      }else{
+        reasonWrap.innerHTML='';
+      }
+    };
+    renderReasoning();
+    tierSel.addEventListener('change',renderReasoning);
   }else{
     modeSettingsContent.innerHTML=`<p>Настройки для ${m}</p>`;
   }
@@ -780,13 +827,14 @@ async function handleReplaceSend(){
   const openaiKey=getOpenAIKey();
   if(!openaiKey){showToast('Введите OpenAI ключ');return;}
   if(!activeChat){showToast('Нет активного чата');return;}
-  const ms=modeSettings[REPLACE_MODE]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2,images:replaceInputs};
+  const ms=modeSettings[REPLACE_MODE]||{prompt:REPLACE_PROMPT_DEFAULT,tier:2,reasoning:'high',images:replaceInputs};
   const imgs=ms.images||replaceInputs;
   if(!(imgs.reference && imgs.targets.some(x=>x))){showToast('Нужен хотя бы один исходник И референс');return;}
   const tiers=getOpenAITiers();
   const model=tiers[ms.tier]||tiers[2];
   const ref=imgs.reference; // full data URI
-  const userMsg={role:'user',content:ms.prompt,attachments:[...imgs.targets.filter(Boolean),imgs.reference]};
+  const promptText=sanitizeText(ms.prompt).slice(0,PROMPT_LIMIT);
+  const userMsg={role:'user',content:promptText,attachments:[...imgs.targets.filter(Boolean),imgs.reference]};
   await api.addMessage(activeChat,userMsg);
   messagesEl.querySelector('.model-desc')?.remove();
   messagesEl.appendChild(createMessageEl(userMsg));
@@ -796,7 +844,8 @@ async function handleReplaceSend(){
   const placeholderEl=createMessageEl(placeholder);
   messagesEl.appendChild(placeholderEl); messagesEl.scrollTop=messagesEl.scrollHeight;
   try{
-    const body={model,input:[{role:'user',content:[{type:'input_text',text:ms.prompt},{type:'input_image',image_url:ref}]}]};
+    const body={model,input:[{role:'user',content:[{type:'input_text',text:promptText},{type:'input_image',image_url:ref}]}]};
+    if(ms.reasoning) body.reasoning={effort:ms.reasoning};
     placeholder.status='обработка';
     setStatus(placeholderEl,placeholder.status);
     await api.updateMessage(activeChat,placeholder.id,{status:placeholder.status});
@@ -829,6 +878,7 @@ async function handleReplaceSend(){
     placeholder.status='ошибка';
     placeholder.content=e.message;
   }
+  placeholder.content=sanitizeText(placeholder.content).slice(0,PROMPT_LIMIT);
   setStatus(placeholderEl,placeholder.status);
   await api.updateMessage(activeChat,placeholder.id,{status:placeholder.status,content:placeholder.content,attachments:placeholder.attachments,params:placeholder.params});
   placeholderEl.replaceWith(createMessageEl(placeholder));
@@ -869,7 +919,8 @@ async function handleSend(){
   const apiKey=getRunwayKey();
   if(!apiKey){ showToast('Введите API ключ'); return; }
   if(!activeChat){ showToast('Нет активного чата'); return; }
-  const prompt=promptInput.value.trim();
+  let prompt=sanitizeText(promptInput.value.trim());
+  if(prompt.length>PROMPT_LIMIT) prompt=prompt.slice(0,PROMPT_LIMIT);
   const info=MODEL_INFO[currentModel];
   if(info.prompt && !prompt){ showToast('Введите промпт'); return; }
   if(info.slots){
@@ -886,7 +937,7 @@ async function handleSend(){
   await api.addMessage(activeChat,userMsg);
   messagesEl.querySelector('.model-desc')?.remove();
   messagesEl.appendChild(createMessageEl(userMsg));
-  promptInput.value=''; autoResize(promptInput); currentFiles={}; renderAttachMenu(); renderAttachPreview(); updateChatState();
+  promptInput.value=''; autoResize(promptInput); updatePromptCounter(); currentFiles={}; renderAttachMenu(); renderAttachPreview(); updateChatState();
   const credits=info.cost({ratio:currentRatio,duration:currentDuration})||0;
   const params={model:info.label,ratio:currentRatio||info.ratios?.[0],duration:currentDuration,credits};
   const placeholder={role:'assistant',content:'',status:'отправка',attachments:[],params};
@@ -1036,9 +1087,11 @@ export function init(){
   modeBtn.addEventListener('click',e=>{e.stopPropagation();togglePopup(modeBtn,modeMenu);});
   modeSaveBtn.addEventListener('click',()=>{
     if(editingMode===REPLACE_MODE){
-      const prompt=document.getElementById('modePrompt').value.trim();
+      let prompt=sanitizeText(document.getElementById('modePrompt').value.trim()).slice(0,PROMPT_LIMIT);
       const tier=parseInt(document.getElementById('modeTier').value,10);
-      modeSettings[REPLACE_MODE]={prompt:prompt||REPLACE_PROMPT_DEFAULT,tier,images:replaceInputs};
+      const reasoningEl=document.getElementById('modeReasoning');
+      const reasoning=reasoningEl?reasoningEl.value:undefined;
+      modeSettings[REPLACE_MODE]={prompt:prompt||REPLACE_PROMPT_DEFAULT,tier,reasoning,images:replaceInputs};
     }else{
       modeSettings[editingMode]=true;
     }
@@ -1073,8 +1126,14 @@ export function init(){
   hiddenFile.addEventListener('change',e=>{const slot=hiddenFile.dataset.slot;const idx=parseInt(hiddenFile.dataset.index,10)||0;handleFiles(slot,idx,e.target.files);hiddenFile.value='';});
   ratioBtn.addEventListener('click',e=>{e.stopPropagation();showRatioMenu();});
   durationBtn.addEventListener('click',e=>{e.stopPropagation();showDurationMenu();});
-  promptInput.addEventListener('input',()=>{autoResize(promptInput);updateChatState();});
+  promptInput.addEventListener('input',()=>{
+    cleanPromptInput(promptInput);
+    autoResize(promptInput);
+    updatePromptCounter();
+    updateChatState();
+  });
   autoResize(promptInput);
+  updatePromptCounter();
   sendBtn.addEventListener('click',handleSend);
   balanceEl.addEventListener('click',()=>refreshBalance());
   setInterval(()=>refreshBalance(true),60000);
