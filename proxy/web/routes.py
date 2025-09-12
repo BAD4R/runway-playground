@@ -18,7 +18,9 @@ from services.openai_batcher import OpenAIRequestBatcher
 from services.elevenlabs_manager import VOICE_DEFAULTS, MODEL_VOICE_PARAMS
 from services.request_handlers import execute_openai_request_parallel
 from chat_routes import bp as chat_bp
+from db import init_db
 
+# Path to the frontend client directory (project root/client)
 CLIENT_DIR = Path(__file__).resolve().parents[2] / "client"
 openai_request_batcher = OpenAIRequestBatcher()
 
@@ -29,6 +31,8 @@ def create_app():
     CORS(app, origins="*", supports_credentials=True, allow_headers=["Content-Type", "Authorization", "X-Request-ID"])
 
     register_routes(app)
+    # Ensure database file exists before serving requests
+    init_db()
 
     @app.route("/", defaults={"path": "index.html"})
     @app.route("/<path:path>")
