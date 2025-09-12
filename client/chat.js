@@ -23,6 +23,7 @@ let openAiPrices = {};
 let currentModes = [];
 let modeSettings = {};
 let replaceInputs = {targets:[null,null],reference:null};
+let openaiUsageHistory = [];
 
 const REPLACE_MODE='Заменить человека на фото';
 
@@ -151,7 +152,7 @@ const MODEL_INFO = {
   }
 };
 
-const AVAILABLE_MODES = [REPLACE_MODE,'Комбо','Анализ','Эконом'];
+const AVAILABLE_MODES = [REPLACE_MODE];
 const REPLACE_PROMPT_DEFAULT = 'Describe the gender of the person in the photo, their exact pose (clearly for each body part - which body parts are visible and how much of them is within the frame or cut off, the position of each body part - which direction it is turned, how it is tilted, what it is resting on or under), the direction of the head, eyes, and gaze. Describe in detail their clothing (clearly for each element of clothing - which body part it covers and how much, what decorative elements are present on this clothing - in what quantity and where they are located and what they depict such as lace, buttons, straps, tags, patches, prints). Describe the actions the person is performing and in detail every object they are interacting with (whether it is a small item or a large bus). Describe the location where they are situated (what is visible in the background, which specific objects are in which places in the frame), other small details, the shooting parameters, the settings and the position in space of the camera that took the picture, any color filters or special effects if such are present. Do not describe the hairstyle, skin color, or hair color, the parameters of the face or body of the person. Provide the answer as continuous text (without lists, without your own comments, explanations, code, emoticons, special symbols, or words about how you understood my request).';
 
 function populateModelMenu(){
@@ -258,7 +259,7 @@ function createReplaceSlot(prefix,index,val){
   slot.addEventListener('click',()=>{hiddenFile.dataset.slot=prefix; hiddenFile.dataset.index=index; hiddenFile.click();});
   slot.addEventListener('dragover',e=>{e.preventDefault(); slot.classList.add('dragover');});
   slot.addEventListener('dragleave',()=>slot.classList.remove('dragover'));
-  slot.addEventListener('drop',e=>{e.preventDefault(); slot.classList.remove('dragover'); handleFiles(prefix,index,e.dataTransfer.files);});
+  slot.addEventListener('drop',e=>{e.preventDefault(); slot.classList.remove('dragover'); if(autoAttach) autoAttach=false; handleFiles(prefix,index,e.dataTransfer.files);});
   return slot;
 }
 
@@ -581,8 +582,16 @@ function formatMeta(p){
   return parts.join(', ');
 }
 
+function findOpenAIPrice(model){
+  if(openAiPrices[model]) return openAiPrices[model];
+  for(const k in openAiPrices){
+    if(model.includes(k)) return openAiPrices[k];
+  }
+  return null;
+}
+
 function calcOpenAICost(model,usage){
-  const p=openAiPrices[model];
+  const p=findOpenAIPrice(model);
   if(!p) return 0;
   const ic=(usage.input_tokens||0)*(p.input||0)/1e6;
   const oc=(usage.output_tokens||0)*(p.output||0)/1e6;
@@ -609,11 +618,11 @@ function updateChatState(){
 
 function updateCost(){
   const info=MODEL_INFO[currentModel];
-  const credits=info.cost({ratio:currentRatio,duration:currentDuration})||0;
-  const parts=[];
   const ratio=currentRatio||info.ratios?.[0];
-  if(ratio) parts.push(ratio.replace(':','x'));
   const dur=currentDuration||info.durations?.[0];
+  const credits=info.cost({ratio,duration:dur})||0;
+  const parts=[];
+  if(ratio) parts.push(ratio.replace(':','x'));
   if(dur) parts.push(`${dur} секунд`);
   parts.push(`${(credits/100).toFixed(2)}$`);
   estCost.textContent=parts.join(', ');
@@ -722,7 +731,7 @@ async function handleReplaceSend(){
   if(!(imgs.reference && imgs.targets.some(x=>x))){showToast('Нужен хотя бы один исходник И референс');return;}
   const tiers=getOpenAITiers();
   const model=tiers[ms.tier]||tiers[2];
-  const ref=imgs.reference.split(',')[1];
+  const ref=imgs.reference; // full data URI
   const userMsg={role:'user',content:'',attachments:[...imgs.targets.filter(Boolean),imgs.reference]};
   await api.addMessage(activeChat,userMsg);
   messagesEl.querySelector('.model-desc')?.remove();
@@ -731,12 +740,17 @@ async function handleReplaceSend(){
   const placeholderEl=createMessageEl(placeholder);
   messagesEl.appendChild(placeholderEl); messagesEl.scrollTop=messagesEl.scrollHeight;
   try{
-    const body={model,input:[{role:'user',content:[{type:'input_text',text:ms.prompt},{type:'input_image',image_base64:ref}]}]};
+    const body={model,input:[{role:'user',content:[{type:'input_text',text:ms.prompt},{type:'input_image',image_url:ref}]}]};
     const res=await api.callOpenAI(openaiKey,body);
     placeholder.status='готово';
     const outs=res.output?.[0]?.content||[];
     outs.forEach(o=>{if(o.type==='output_text') placeholder.content=o.text; if(o.type==='output_image') placeholder.attachments.push('data:image/png;base64,'+o.image_base64);});
-    placeholder.params.cost=calcOpenAICost(model,res.usage||{});
+    const respModel=res.model||model;
+    const usage=res.usage||{};
+    placeholder.params.model=respModel;
+    placeholder.params.tokens=usage;
+    placeholder.params.cost=calcOpenAICost(respModel,usage);
+    openaiUsageHistory.push({model:respModel,usage});
   }catch(e){
     placeholder.status='ошибка';
     placeholder.content=e.message;
@@ -768,6 +782,7 @@ async function handleReplaceSend(){
   await api.addMessage(activeChat,ph);
   phEl.replaceWith(createMessageEl(ph));
   updateCost();
+  refreshBalance();
 }
 
 async function handleSend(){
@@ -835,6 +850,7 @@ async function handleSend(){
   await api.addMessage(activeChat,placeholder);
   placeholderEl.replaceWith(createMessageEl(placeholder));
   updateCost();
+  refreshBalance();
 }
 
 function collectAllFiles(){
@@ -983,10 +999,13 @@ export function init(){
   balanceEl.addEventListener('click',()=>refreshBalance());
   setInterval(()=>refreshBalance(true),60000);
   window.addEventListener('dragenter',e=>{
-    if(attachMenu.classList.contains('hidden')){
-      renderAttachMenu();
-      positionPopup(attachBtn,attachMenu);
-      attachMenu.classList.remove('hidden');
+    const useReplace=currentModes.includes(REPLACE_MODE);
+    const menu=useReplace?replaceMenu:attachMenu;
+    const btn=useReplace?openaiBtn:attachBtn;
+    if(menu.classList.contains('hidden')){
+      if(useReplace) renderReplaceMenu(); else renderAttachMenu();
+      positionPopup(btn,menu);
+      menu.classList.remove('hidden');
       autoAttach=true;
     }
   });
@@ -1007,6 +1026,8 @@ function showRatioMenu(){
   const opts=info.ratios||[]; if(opts.length===0) return;
   const menu=document.createElement('div');
   menu.className='popup dynamic';
+  menu.style.maxHeight='200px';
+  menu.style.overflowY='auto';
   opts.forEach(r=>{const b=document.createElement('button');b.textContent=r;b.addEventListener('click',()=>{currentRatio=r;updateChatState();updateCost();hidePopups();});menu.appendChild(b);});
   document.body.appendChild(menu);
   positionPopup(ratioBtn, menu);
