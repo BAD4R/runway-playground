@@ -732,7 +732,7 @@ async function handleReplaceSend(){
   const tiers=getOpenAITiers();
   const model=tiers[ms.tier]||tiers[2];
   const ref=imgs.reference; // full data URI
-  const userMsg={role:'user',content:'',attachments:[...imgs.targets.filter(Boolean),imgs.reference]};
+  const userMsg={role:'user',content:ms.prompt,attachments:[...imgs.targets.filter(Boolean),imgs.reference]};
   await api.addMessage(activeChat,userMsg);
   messagesEl.querySelector('.model-desc')?.remove();
   messagesEl.appendChild(createMessageEl(userMsg));
@@ -741,10 +741,27 @@ async function handleReplaceSend(){
   messagesEl.appendChild(placeholderEl); messagesEl.scrollTop=messagesEl.scrollHeight;
   try{
     const body={model,input:[{role:'user',content:[{type:'input_text',text:ms.prompt},{type:'input_image',image_url:ref}]}]};
+    placeholder.status='обрабатывается';
+    setStatus(placeholderEl,placeholder.status);
     const res=await api.callOpenAI(openaiKey,body);
     placeholder.status='готово';
-    const outs=res.output?.[0]?.content||[];
-    outs.forEach(o=>{if(o.type==='output_text') placeholder.content=o.text; if(o.type==='output_image') placeholder.attachments.push('data:image/png;base64,'+o.image_base64);});
+    const outs=Array.isArray(res?.output)
+      ? res.output.flatMap(o=>Array.isArray(o.content)?o.content:[])
+      : Array.isArray(res?.content)?res.content:[];
+    outs.forEach(o=>{
+      if(o.type==='output_text' || o.type==='text') placeholder.content+=o.text;
+      if(o.type==='output_image' || o.type==='image'){
+        const b64=o.image_base64||o.b64_json;
+        if(b64) placeholder.attachments.push('data:image/png;base64,'+b64);
+      }
+    });
+    if(!placeholder.content && typeof res?.output_text==='string') placeholder.content=res.output_text;
+    if(!placeholder.content && typeof res?.text==='string') placeholder.content=res.text;
+    if(!placeholder.content && res?.choices?.length){
+      const c=res.choices[0].message?.content;
+      if(typeof c==='string') placeholder.content=c;
+      else if(Array.isArray(c)) placeholder.content=c.map(p=>p.text||'').join('');
+    }
     const respModel=res.model||model;
     const usage=res.usage||{};
     placeholder.params.model=respModel;
