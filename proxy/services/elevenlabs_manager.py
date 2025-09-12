@@ -160,7 +160,8 @@ class ElevenLabsManager:
                 ws = wb.active
                 
                 # Proveryaem nalichie neobkhodimykh stolbtsov
-                headers = [cell.value for cell in ws[1]]
+                header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+                headers = list(header_row)
                 required_headers = [
                     "API Key", "Email", "Password",
                     "Quota Remaining", "Last Checked", "Status",
