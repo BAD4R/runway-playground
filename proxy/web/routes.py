@@ -5,7 +5,8 @@ Flask web routes and API endpoints
 import io
 import time
 import json
-from flask import Flask, request, make_response, send_file, jsonify
+from pathlib import Path
+from flask import Flask, request, make_response, send_file, jsonify, send_from_directory
 from flask_cors import CORS
 import requests
 
@@ -16,27 +17,36 @@ from config.settings import get_openai_config
 from services.openai_batcher import OpenAIRequestBatcher
 from services.elevenlabs_manager import VOICE_DEFAULTS, MODEL_VOICE_PARAMS
 from services.request_handlers import execute_openai_request_parallel
+from chat_routes import bp as chat_bp
+from db import init_db
 
-openai_request_batcher = OpenAIRequestBatcher()
-
-openai_request_batcher = OpenAIRequestBatcher()
-
-openai_request_batcher = OpenAIRequestBatcher()
-
+# Path to the frontend client directory (project root/client)
+CLIENT_DIR = Path(__file__).resolve().parents[2] / "client"
 openai_request_batcher = OpenAIRequestBatcher()
 
 
 def create_app():
     """Создает и настраивает Flask приложение"""
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder=str(CLIENT_DIR), static_url_path="")
     CORS(app, origins="*", supports_credentials=True, allow_headers=["Content-Type", "Authorization", "X-Request-ID"])
-    
+
     register_routes(app)
+    # Ensure database file exists before serving requests
+    init_db()
+
+    @app.route("/", defaults={"path": "index.html"})
+    @app.route("/<path:path>")
+    def client_files(path):
+        target = CLIENT_DIR / path
+        if target.is_dir():
+            path = f"{path.rstrip('/')}/index.html"
+        return send_from_directory(CLIENT_DIR, path)
+
     return app
 
 def register_routes(app):
     """Регистрирует все маршруты"""
-
+    app.register_blueprint(chat_bp)
     @app.route("/status", methods=["get"])
     def status():
         try:
