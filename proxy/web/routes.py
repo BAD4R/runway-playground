@@ -5,6 +5,7 @@ Flask web routes and API endpoints
 import io
 import time
 import json
+import os
 from pathlib import Path
 from flask import Flask, request, make_response, send_file, jsonify, send_from_directory
 from flask_cors import CORS
@@ -22,6 +23,13 @@ from services.elevenlabs_manager import VOICE_DEFAULTS, MODEL_VOICE_PARAMS
 from services.request_handlers import execute_openai_request_parallel
 from chat_routes import bp as chat_bp
 from db import init_db
+
+RUNWAY_BASE_URL = os.getenv("RUNWAY_BASE_URL", "https://api.dev.runwayml.com/v1").rstrip("/")
+
+
+def runway_url(path: str) -> str:
+    return f"{RUNWAY_BASE_URL}/{path.lstrip('/')}"
+
 
 # --- Logging setup ---------------------------------------------------------
 logger = logging.getLogger("runway_proxy")
@@ -70,7 +78,7 @@ def _token_refresh_loop():
         if hdr:
             try:
                 requests.get(
-                    "https://api.runwayml.com/v1/organization",
+                    runway_url("organization"),
                     headers={"Authorization": hdr},
                     timeout=30,
                 )
@@ -164,7 +172,7 @@ def register_routes(app):
         if request.method == "OPTIONS":
             return add_cors(make_response())
         try:
-            url = f"https://api.runwayml.com/v1/{path}"
+            url = runway_url(path)
             headers = {k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length")}
             _cached_auth["header"] = headers.get("Authorization") or _cached_auth.get("header")
             _log_request(request)
