@@ -240,6 +240,18 @@ function openFile(slotName,index){
 function handleFiles(slotName,index,files){
   const file=files[0];
   if(!file) return;
+  const info=MODEL_INFO[currentModel];
+  if(file.type.startsWith('video/') && !info.durations){
+    const v=document.createElement('video');
+    v.preload='metadata';
+    v.onloadedmetadata=()=>{
+      currentDuration=Math.ceil(v.duration);
+      updateCost();
+      updateChatState();
+      URL.revokeObjectURL(v.src);
+    };
+    v.src=URL.createObjectURL(file);
+  }
   const reader=new FileReader();
   reader.onload=()=>{
     const slot=MODEL_INFO[currentModel].slots.find(s=>s.name===slotName);
@@ -263,6 +275,11 @@ function removeFile(slotName,index){
     if(Array.isArray(currentFiles[slotName])) currentFiles[slotName][index]=null;
   }else{
     delete currentFiles[slotName];
+  }
+  if(slot.name==='videoUri' && !MODEL_INFO[currentModel].durations){
+    currentDuration=null;
+    updateCost();
+    updateChatState();
   }
   renderAttachMenu();
   renderAttachPreview();
@@ -447,6 +464,12 @@ function createMessageEl(m){
       }
       el.className='attachment';
       box.appendChild(el);
+      const dl=document.createElement('a');
+      dl.href=a;
+      dl.download='';
+      dl.className='download-btn';
+      dl.innerHTML='<img src="./icons/download.svg" alt="download" />';
+      box.appendChild(dl);
       div.appendChild(box);
     });
   }
@@ -491,7 +514,13 @@ function updateChatState(){
 function updateCost(){
   const info=MODEL_INFO[currentModel];
   const credits=info.cost({ratio:currentRatio,duration:currentDuration})||0;
-  estCost.textContent='$'+(credits/100).toFixed(2);
+  const parts=[];
+  const ratio=currentRatio||info.ratios?.[0];
+  if(ratio) parts.push(ratio.replace(':','x'));
+  const dur=currentDuration||info.durations?.[0];
+  if(dur) parts.push(`${dur} секунд`);
+  parts.push(`${(credits/100).toFixed(2)}$`);
+  estCost.textContent=parts.join(', ');
 }
 
 async function handleSend(){
@@ -528,13 +557,21 @@ async function handleSend(){
     setStatus(placeholderEl,placeholder.status);
     const task=await api.waitForTask(apiKey,res.id,t=>{
       if(t.status){
-        placeholder.status = t.progress ? `обработка ${t.progress}%` : 'обработка';
+        const pct = t.progress!=null ? Math.floor(t.progress*100) : null;
+        placeholder.status = pct!=null ? `обработка ${pct}%` : 'обработка';
         setStatus(placeholderEl,placeholder.status);
       }
     });
     if(task.status==='SUCCEEDED' && task.output){
       placeholder.status='готово';
-      placeholder.attachments=task.output;
+      placeholder.attachments=await Promise.all(task.output.map(async u=>{
+        if(typeof u==='string' && u.startsWith('data:')) return u;
+        try{
+          const r=await fetch(u);
+          const b=await r.blob();
+          return await new Promise(res=>{const fr=new FileReader();fr.onloadend=()=>res(fr.result);fr.readAsDataURL(b);});
+        }catch{return u;}
+      }));
     }else{
       placeholder.status='ошибка';
       placeholder.content='Ошибка генерации';
