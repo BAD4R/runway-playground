@@ -4,9 +4,11 @@ import json
 import os
 
 # Path to the global parameters file. Can be overridden via ENV variable.
+from pathlib import Path
+
 GLOBAL_PARAMS_PATH = os.environ.get(
     "GLOBAL_PARAMS_PATH",
-    "C:/Users/V/Desktop/Channels/globalParams.json",
+    str(Path(__file__).resolve().parents[2] / "client" / "globalParams.json"),
 )
 
 def _load_file(path: str) -> dict:
@@ -19,6 +21,12 @@ def _load_file(path: str) -> dict:
             return json.load(f)
     except Exception:
         return {}
+
+def load_openai_prices(path: str = GLOBAL_PARAMS_PATH) -> dict:
+    """Return OpenAI pricing from the global params file."""
+    data = _load_file(path)
+    return data.get("openAiPrices", {})
+
 
 def load_openai_limits(path: str = GLOBAL_PARAMS_PATH) -> dict:
     """Return OpenAI rate limits mapping from the global params file."""
@@ -38,6 +46,7 @@ def load_recraft_limits(path: str = GLOBAL_PARAMS_PATH) -> dict:
     return data.get("recraftLimits", {})
 
 __all__ = [
+    "load_openai_prices",
     "load_openai_limits",
     "load_elevenlabs_limits",
     "load_recraft_limits",

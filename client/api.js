@@ -1,4 +1,4 @@
-const BASE = 'http://localhost:5100';
+const BASE = 'http://localhost:8001';
 const API_VERSION = '2024-11-06';
 
 async function jsonFetch(url, opts={}){
@@ -46,6 +46,20 @@ export function addMessage(chatId, msg){
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify(msg)
   });
+}
+
+// ----- OpenAI API -----
+export async function callOpenAI(apiKey, body){
+  const r = await fetch(`${BASE}/proxy-responses`, {
+    method:'POST',
+    headers:{
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  if(!r.ok) throw new Error(await r.text());
+  return r.json();
 }
 
 // ----- Runway API -----
