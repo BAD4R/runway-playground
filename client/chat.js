@@ -1,13 +1,15 @@
 import * as api from './api.js';
-import { getApiKey, setApiKey } from './state.js';
+import { getRunwayKey, setRunwayKey, getOpenAIKey, setOpenAIKey, getOpenAITiers, setOpenAITiers } from './state.js';
 import { positionPopup, hidePopups, togglePopup, showToast } from './ui.js';
 
 const log = (...args) => console.log('[chat]', ...args);
 
 let modelBtn, modelMenu, chatListEl, newChatBtn, messagesEl, promptInput,
-    sendBtn, attachBtn, ratioBtn, durationBtn, hiddenFile, apiKeyInput,
-    saveKeyBtn, balanceEl, attachPreview, attachMenu, estCost,
-    settingsBtn, settingsModal, viewer;
+    sendBtn, attachBtn, ratioBtn, durationBtn, hiddenFile,
+    runwayKeyInput, openaiKeyInput, openaiTiersEl, saveSettingsBtn, balanceEl,
+    attachPreview, attachMenu, estCost, settingsBtn, settingsModal,
+    modeBtn, modeMenu, modeTags, modeSettingsModal, modeSettingsContent,
+    modeSaveBtn, modeCancelBtn, viewer;
 
 let chats = [];
 let activeChat = null;
@@ -17,6 +19,9 @@ let currentRatio = null;
 let currentDuration = null;
 let chatColor = '#d946ef';
 let autoAttach = false;
+let openAiPrices = {};
+let currentModes = [];
+let modeSettings = {};
 
 function withAlpha(hex, alpha){
   const r=parseInt(hex.slice(1,3),16);
@@ -127,6 +132,8 @@ const MODEL_INFO = {
     cost:({duration=8})=>40*duration
   }
 };
+
+const AVAILABLE_MODES = ['Комбо','Анализ','Эконом'];
 
 function populateModelMenu(){
   modelMenu.innerHTML='';
@@ -240,6 +247,18 @@ function openFile(slotName,index){
 function handleFiles(slotName,index,files){
   const file=files[0];
   if(!file) return;
+  const info=MODEL_INFO[currentModel];
+  if(file.type.startsWith('video/') && !info.durations){
+    const v=document.createElement('video');
+    v.preload='metadata';
+    v.onloadedmetadata=()=>{
+      currentDuration=Math.ceil(v.duration);
+      updateCost();
+      updateChatState();
+      URL.revokeObjectURL(v.src);
+    };
+    v.src=URL.createObjectURL(file);
+  }
   const reader=new FileReader();
   reader.onload=()=>{
     const slot=MODEL_INFO[currentModel].slots.find(s=>s.name===slotName);
@@ -263,6 +282,11 @@ function removeFile(slotName,index){
     if(Array.isArray(currentFiles[slotName])) currentFiles[slotName][index]=null;
   }else{
     delete currentFiles[slotName];
+  }
+  if(slot.name==='videoUri' && !MODEL_INFO[currentModel].durations){
+    currentDuration=null;
+    updateCost();
+    updateChatState();
   }
   renderAttachMenu();
   renderAttachPreview();
@@ -359,8 +383,8 @@ async function loadChats(){
   renderChatList();
   if(chats.length===0){
     const color=MODEL_INFO[currentModel].color;
-    const c=await api.createChat('Новый чат',{color,model:currentModel});
-    c.state={color,model:currentModel};
+    const c=await api.createChat('Новый чат',{color,model:currentModel,modes:[],modeSettings:{}});
+    c.state={color,model:currentModel,modes:[],modeSettings:{}};
     chats.unshift(c);
     renderChatList();
   }
@@ -376,11 +400,14 @@ async function selectChat(id){
   currentFiles=chat.state.files||{};
   currentRatio=chat.state.ratio||null;
   currentDuration=chat.state.duration||null;
+  currentModes=chat.state.modes||[];
+  modeSettings=chat.state.modeSettings||{};
   renderAttachMenu();
   renderAttachPreview();
   updateCost();
   updateModelDesc();
   renderMessages(msgs);
+  renderModeTags();
 
   activeChat=id;
   const info=MODEL_INFO[currentModel];
@@ -447,6 +474,12 @@ function createMessageEl(m){
       }
       el.className='attachment';
       box.appendChild(el);
+      const dl=document.createElement('a');
+      dl.href=a;
+      dl.download='';
+      dl.className='download-btn';
+      dl.innerHTML='<img src="./icons/download.svg" alt="download" />';
+      box.appendChild(dl);
       div.appendChild(box);
     });
   }
@@ -485,17 +518,97 @@ function setStatus(el,text){
 
 function updateChatState(){
   if(!activeChat) return;
-  api.updateChat(activeChat,{state:{model:currentModel,prompt:promptInput.value,files:currentFiles,ratio:currentRatio,duration:currentDuration,color:chatColor}});
+  api.updateChat(activeChat,{state:{model:currentModel,prompt:promptInput.value,files:currentFiles,ratio:currentRatio,duration:currentDuration,color:chatColor,modes:currentModes,modeSettings}});
 }
 
 function updateCost(){
   const info=MODEL_INFO[currentModel];
   const credits=info.cost({ratio:currentRatio,duration:currentDuration})||0;
-  estCost.textContent='$'+(credits/100).toFixed(2);
+  const parts=[];
+  const ratio=currentRatio||info.ratios?.[0];
+  if(ratio) parts.push(ratio.replace(':','x'));
+  const dur=currentDuration||info.durations?.[0];
+  if(dur) parts.push(`${dur} секунд`);
+  parts.push(`${(credits/100).toFixed(2)}$`);
+  estCost.textContent=parts.join(', ');
+}
+
+function renderModeMenu(){
+  modeMenu.innerHTML='';
+  AVAILABLE_MODES.forEach(m=>{
+    const row=document.createElement('div');
+    row.className='mode-item';
+    const b=document.createElement('button');
+    b.textContent=m;
+    b.addEventListener('click',()=>{activateMode(m);hidePopups();});
+    const gear=document.createElement('span');
+    gear.className='mode-gear';
+    gear.innerHTML='<img src="./icons/gear.svg" alt="settings" />';
+    gear.addEventListener('click',e=>{e.stopPropagation();openModeSettings(m);});
+    row.appendChild(b); row.appendChild(gear);
+    modeMenu.appendChild(row);
+  });
+}
+
+function activateMode(m){
+  if(!currentModes.includes(m)) currentModes.push(m);
+  renderModeTags();
+  updateChatState();
+}
+
+function removeMode(m){
+  currentModes=currentModes.filter(x=>x!==m);
+  renderModeTags();
+  updateChatState();
+}
+
+function renderModeTags(){
+  modeTags.innerHTML='';
+  currentModes.forEach(m=>{
+    const tag=document.createElement('span');
+    tag.className='mode-tag';
+    tag.textContent=m;
+    const x=document.createElement('button');
+    x.textContent='×';
+    x.addEventListener('click',e=>{e.stopPropagation();removeMode(m);});
+    tag.appendChild(x);
+    tag.addEventListener('click',()=>openModeSettings(m));
+    modeTags.appendChild(tag);
+  });
+}
+
+let editingMode=null;
+function openModeSettings(m){
+  editingMode=m;
+  modeSettingsContent.innerHTML=`<p>Настройки для ${m}</p>`;
+  modeSettingsModal.classList.remove('hidden');
+}
+
+function renderOpenAITiers(){
+  openaiTiersEl.innerHTML='';
+  const tiers=getOpenAITiers();
+  for(let i=1;i<=5;i++){
+    const lbl=document.createElement('label');
+    lbl.textContent=`Tier ${i}`;
+    const sel=document.createElement('select');
+    sel.dataset.tier=i;
+    Object.keys(openAiPrices).forEach(m=>{
+      const p=openAiPrices[m];
+      const opt=document.createElement('option');
+      opt.value=m;
+      const inp=p.input!=null?`$${p.input}`:'-';
+      const outp=p.output!=null?`$${p.output}`:'-';
+      opt.textContent=`${m} (${inp} / ${outp})`;
+      sel.appendChild(opt);
+    });
+    sel.value=tiers[i]||sel.options[0]?.value;
+    lbl.appendChild(sel);
+    openaiTiersEl.appendChild(lbl);
+  }
 }
 
 async function handleSend(){
-  const apiKey=getApiKey();
+  const apiKey=getRunwayKey();
   if(!apiKey){ showToast('Введите API ключ'); return; }
   if(!activeChat){ showToast('Нет активного чата'); return; }
   const prompt=promptInput.value.trim();
@@ -528,13 +641,21 @@ async function handleSend(){
     setStatus(placeholderEl,placeholder.status);
     const task=await api.waitForTask(apiKey,res.id,t=>{
       if(t.status){
-        placeholder.status = t.progress ? `обработка ${t.progress}%` : 'обработка';
+        const pct = t.progress!=null ? Math.floor(t.progress*100) : null;
+        placeholder.status = pct!=null ? `обработка ${pct}%` : 'обработка';
         setStatus(placeholderEl,placeholder.status);
       }
     });
     if(task.status==='SUCCEEDED' && task.output){
       placeholder.status='готово';
-      placeholder.attachments=task.output;
+      placeholder.attachments=await Promise.all(task.output.map(async u=>{
+        if(typeof u==='string' && u.startsWith('data:')) return u;
+        try{
+          const r=await fetch(u);
+          const b=await r.blob();
+          return await new Promise(res=>{const fr=new FileReader();fr.onloadend=()=>res(fr.result);fr.readAsDataURL(b);});
+        }catch{return u;}
+      }));
     }else{
       placeholder.status='ошибка';
       placeholder.content='Ошибка генерации';
@@ -574,7 +695,7 @@ async function buildPayload(model,prompt,files){
 }
 
 async function refreshBalance(silent=false){
-  const key=getApiKey();
+  const key=getRunwayKey();
   if(!key) return;
   const j=await api.fetchBalance(key,silent);
   if(j && typeof j.creditBalance==='number') balanceEl.textContent=j.creditBalance;
@@ -592,33 +713,74 @@ export function init(){
   ratioBtn=document.getElementById('ratioBtn');
   durationBtn=document.getElementById('durationBtn');
   hiddenFile=document.getElementById('hiddenFile');
-  apiKeyInput=document.getElementById('apiKey');
-  saveKeyBtn=document.getElementById('saveKeyBtn');
+  runwayKeyInput=document.getElementById('runwayKey');
+  openaiKeyInput=document.getElementById('openaiKey');
+  openaiTiersEl=document.getElementById('openaiTiers');
+  saveSettingsBtn=document.getElementById('saveSettingsBtn');
   balanceEl=document.getElementById('balanceCredits');
   attachPreview=document.getElementById('attachPreview');
   attachMenu=document.getElementById('attachMenu');
   estCost=document.getElementById('estCost');
   settingsBtn=document.getElementById('settingsBtn');
   settingsModal=document.getElementById('settingsModal');
+  modeBtn=document.getElementById('modeBtn');
+  modeMenu=document.getElementById('modeMenu');
+  modeTags=document.getElementById('modeTags');
+  modeSettingsModal=document.getElementById('modeSettings');
+  modeSettingsContent=document.getElementById('modeSettingsContent');
+  modeSaveBtn=document.getElementById('modeSave');
+  modeCancelBtn=document.getElementById('modeCancel');
   viewer=document.getElementById('viewer');
 
-  if(!modelBtn||!chatListEl||!newChatBtn||!messagesEl||!promptInput||!sendBtn||!attachBtn||!ratioBtn||!durationBtn||!hiddenFile||!apiKeyInput||!saveKeyBtn||!balanceEl||!attachPreview||!attachMenu||!settingsBtn||!settingsModal||!viewer){
+  if(!modelBtn||!chatListEl||!newChatBtn||!messagesEl||!promptInput||!sendBtn||!attachBtn||!ratioBtn||!durationBtn||!hiddenFile||!runwayKeyInput||!openaiKeyInput||!openaiTiersEl||!saveSettingsBtn||!balanceEl||!attachPreview||!attachMenu||!settingsBtn||!settingsModal||!modeBtn||!modeMenu||!modeTags||!modeSettingsModal||!modeSettingsContent||!modeSaveBtn||!modeCancelBtn||!viewer){
     console.error('Missing DOM elements'); return;
   }
 
   populateModelMenu();
+  renderModeMenu();
   selectModel(currentModel);
-  apiKeyInput.value=getApiKey();
-  if(apiKeyInput.value) refreshBalance(true);
+  runwayKeyInput.value=getRunwayKey();
+  openaiKeyInput.value=getOpenAIKey();
+  if(runwayKeyInput.value) refreshBalance(true);
 
-  saveKeyBtn.addEventListener('click',()=>{ setApiKey(apiKeyInput.value.trim()); settingsModal.classList.add('hidden'); refreshBalance();});
-  settingsBtn.addEventListener('click',()=>{ settingsModal.classList.remove('hidden'); });
+  saveSettingsBtn.addEventListener('click',()=>{
+    setRunwayKey(runwayKeyInput.value.trim());
+    setOpenAIKey(openaiKeyInput.value.trim());
+    const tiers={};
+    openaiTiersEl.querySelectorAll('select').forEach(sel=>tiers[sel.dataset.tier]=sel.value);
+    setOpenAITiers(tiers);
+    settingsModal.classList.add('hidden');
+    refreshBalance();
+  });
+  settingsBtn.addEventListener('click',()=>{
+    runwayKeyInput.value=getRunwayKey();
+    openaiKeyInput.value=getOpenAIKey();
+    renderOpenAITiers();
+    settingsModal.classList.remove('hidden');
+  });
   settingsModal.addEventListener('click',e=>{ if(e.target===settingsModal) settingsModal.classList.add('hidden'); });
+  settingsModal.querySelectorAll('.tabs button').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      settingsModal.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      settingsModal.querySelectorAll('.tab-content').forEach(c=>c.classList.add('hidden'));
+      document.getElementById('tab-'+btn.dataset.tab).classList.remove('hidden');
+    });
+  });
+
+  modeBtn.addEventListener('click',e=>{e.stopPropagation();togglePopup(modeBtn,modeMenu);});
+  modeSaveBtn.addEventListener('click',()=>{
+    modeSettings[editingMode]=true;
+    modeSettingsModal.classList.add('hidden');
+    updateChatState();
+  });
+  modeCancelBtn.addEventListener('click',()=>modeSettingsModal.classList.add('hidden'));
+  modeSettingsModal.addEventListener('click',e=>{if(e.target===modeSettingsModal) modeSettingsModal.classList.add('hidden');});
   viewer.addEventListener('click',e=>{ if(e.target===viewer) viewer.classList.add('hidden'); });
   newChatBtn.addEventListener('click',async()=>{
     const color=MODEL_INFO[currentModel].color;
-    const c=await api.createChat('Новый чат',{color,model:currentModel});
-    c.state={color,model:currentModel};
+    const c=await api.createChat('Новый чат',{color,model:currentModel,modes:[],modeSettings:{}});
+    c.state={color,model:currentModel,modes:[],modeSettings:{}};
     chatColor=color;
     document.documentElement.style.setProperty('--accent', color);
     document.documentElement.style.setProperty('--accent-bg', withAlpha(color,0.15));
@@ -658,6 +820,7 @@ export function init(){
       setTimeout(()=>{if(autoAttach){hidePopups(); autoAttach=false;}},0);
     }
   });
+  fetch('./globalParams.json').then(r=>r.json()).then(d=>{openAiPrices=d.openAiPrices||{};});
   loadChats();
 }
 
