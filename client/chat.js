@@ -29,11 +29,14 @@ let expandedTextEl = null;
 const REPLACE_MODE='Заменить человека на фото';
 const PROMPT_LIMIT=1000;
 
-function cleanPromptInput(el){
+function cleanPromptInput(el, limit = PROMPT_LIMIT){
   const start = el.selectionStart || 0;
-  const prefix = sanitizeText(el.value.slice(0, start)).slice(0, PROMPT_LIMIT);
+  let prefix = sanitizeText(el.value.slice(0, start));
   let v = sanitizeText(el.value);
-  if(v.length > PROMPT_LIMIT) v = v.slice(0, PROMPT_LIMIT);
+  if(limit != null){
+    prefix = prefix.slice(0, limit);
+    if(v.length > limit) v = v.slice(0, limit);
+  }
   el.value = v;
   const pos = Math.min(prefix.length, v.length);
   el.setSelectionRange(pos,pos);
@@ -178,7 +181,7 @@ const MODEL_INFO = {
 
 const AVAILABLE_MODES = [REPLACE_MODE];
 const REPLACE_BASE_PROMPT = 'Replace the person on the last image with person from first two (or first one, of two photos in total in request) images';
-const REPLACE_PROMPT_DEFAULT = "Make output strictly less than 1000 characters long, keep it closer to 700-800. Describe the gender of the person in the photo, their exact pose (clearly for each body part - which body parts are visible and how much of them is within the frame or cut off, the position of each body part - which direction it is turned, how it is tilted, what it is resting on or under), the direction of the head, eyes, and gaze. Describe in detail their clothing (clearly for each element of clothing - which body part it covers and how much, what decorative elements are present on this clothing - in what quantity and where they are located and what they depict such as lace, buttons, straps, tags, patches, prints). Describe the actions the person is performing and in detail every object they are interacting with (whether it is a small item or a large bus). Describe the location where they are situated (what is visible in the background, which specific objects are in which places in the frame), other small details, the shooting parameters, the settings and the position in space of the camera that took the picture, any color filters or special effects if such are present. Do not describe the hairstyle, skin color, or hair color, the parameters of the face or body of the person. Provide the answer as continuous text (without lists, without your own comments, explanations, code, emoticons, special symbols, or words about how you understood my request). If you can not describe something just skip it, without notifying about it, and try do describe all other parameters.";
+const REPLACE_PROMPT_DEFAULT = "Make output strictly less than 1000 characters long, keep it closer to 700-800. Describe the gender of the person in the photo (skip if unsure), their exact pose (clearly for each body part - which body parts are visible and the position of each body part), the direction of the head, eyes, and gaze. Describe in detail their clothing and accessories (clearly for each element of clothing - what decorative elements are present on this clothing - in what quantity and where they are located and what they depict such as lace, buttons, straps, tags, patches, prints). Describe the actions the person is performing (if any) and in detail every object they are interacting with (if any) (whether it is a small item or a large bus). Describe the location where they are situated (what is visible in the background, which specific objects are in which places in the frame), other small details, any color filters or special effects (if any). Do not describe the hairstyle, skin color, or hair color, the parameters of the face or body of the person. Provide the answer as continuous text (without lists, without your own comments, explanations, code, emoticons, special symbols, or words about how you understood my request). If you can not describe something just skip it, without notifying about it, and try to describe all other parameters.";
 
 function populateModelMenu(){
   modelMenu.innerHTML='';
@@ -795,9 +798,9 @@ function openModeSettings(m){
     const base=sanitizeText(ms.basePrompt||REPLACE_BASE_PROMPT);
     modeSettingsContent.innerHTML=`<label><textarea id="modePrompt" rows="4" placeholder="Промпт">${ms.prompt}</textarea></label><label><input id="modeBasePrompt" type="text" placeholder="Основной промпт для Runway" value="${base}"/></label><label><select id="modeTier">${opts}</select></label><div id="reasoningWrap"></div><p class="mode-desc">Составляет детальное описание референса через ChatGPT и отправляет запрос к Runway для замены личности на фото</p>`;
     const promptEl=document.getElementById('modePrompt');
-    promptEl.addEventListener('input',()=>cleanPromptInput(promptEl));
+    promptEl.addEventListener('input',()=>cleanPromptInput(promptEl,null));
     const baseEl=document.getElementById('modeBasePrompt');
-    baseEl.addEventListener('input',()=>cleanPromptInput(baseEl));
+    baseEl.addEventListener('input',()=>cleanPromptInput(baseEl,null));
     const tierSel=document.getElementById('modeTier');
     const reasonWrap=document.getElementById('reasoningWrap');
     const renderReasoning=()=>{
@@ -853,7 +856,7 @@ async function handleReplaceSend(){
   const tiers=getOpenAITiers();
   const model=tiers[ms.tier]||tiers[2];
   const ref=imgs.reference; // full data URI
-  const promptText=sanitizeText(ms.prompt).slice(0,PROMPT_LIMIT);
+  const promptText=sanitizeText(ms.prompt);
   const userMsg={role:'user',content:promptText,attachments:[...imgs.targets.filter(Boolean),imgs.reference]};
   await api.addMessage(chatId,userMsg);
   if(chatId===activeChat){
@@ -1136,8 +1139,8 @@ export function init(){
   modeBtn.addEventListener('click',e=>{e.stopPropagation();togglePopup(modeBtn,modeMenu);});
   modeSaveBtn.addEventListener('click',()=>{
     if(editingMode===REPLACE_MODE){
-      let prompt=sanitizeText(document.getElementById('modePrompt').value.trim()).slice(0,PROMPT_LIMIT);
-      let basePrompt=sanitizeText(document.getElementById('modeBasePrompt').value.trim()).slice(0,PROMPT_LIMIT);
+      let prompt=sanitizeText(document.getElementById('modePrompt').value.trim());
+      let basePrompt=sanitizeText(document.getElementById('modeBasePrompt').value.trim());
       const tier=parseInt(document.getElementById('modeTier').value,10);
       const reasoningEl=document.getElementById('modeReasoning');
       const reasoning=reasoningEl?reasoningEl.value:undefined;
