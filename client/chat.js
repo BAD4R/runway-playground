@@ -177,8 +177,8 @@ const MODEL_INFO = {
 };
 
 const AVAILABLE_MODES = [REPLACE_MODE];
-const REPLACE_BASE_PROMPT = 'Replace the person on the last image with person from first two (one of one two photos in total) images';
-const REPLACE_PROMPT_DEFAULT = "Make output strictly less than 1000 characters long, keep it closer to 700-800. Describe the gender of the person in the photo, their exact pose (clearly for each body part - which body parts are visible and how much of them is within the frame or cut off, the position of each body part - which direction it is turned, how it is tilted, what it is resting on or under), the direction of the head, eyes, and gaze. Describe in detail their clothing (clearly for each element of clothing - which body part it covers and how much, what decorative elements are present on this clothing - in what quantity and where they are located and what they depict such as lace, buttons, straps, tags, patches, prints). Describe the actions the person is performing and in detail every object they are interacting with (whether it is a small item or a large bus). Describe the location where they are situated (what is visible in the background, which specific objects are in which places in the frame), other small details, the shooting parameters, the settings and the position in space of the camera that took the picture, any color filters or special effects if such are present. Do not describe the hairstyle, skin color, or hair color, the parameters of the face or body of the person. Provide the answer as continuous text (without lists, without your own comments, explanations, code, emoticons, special symbols, or words about how you understood my request).";
+const REPLACE_BASE_PROMPT = 'Replace the person on the last image with person from first two (or first one, of two photos in total in request) images';
+const REPLACE_PROMPT_DEFAULT = "Make output strictly less than 1000 characters long, keep it closer to 700-800. Describe the gender of the person in the photo, their exact pose (clearly for each body part - which body parts are visible and how much of them is within the frame or cut off, the position of each body part - which direction it is turned, how it is tilted, what it is resting on or under), the direction of the head, eyes, and gaze. Describe in detail their clothing (clearly for each element of clothing - which body part it covers and how much, what decorative elements are present on this clothing - in what quantity and where they are located and what they depict such as lace, buttons, straps, tags, patches, prints). Describe the actions the person is performing and in detail every object they are interacting with (whether it is a small item or a large bus). Describe the location where they are situated (what is visible in the background, which specific objects are in which places in the frame), other small details, the shooting parameters, the settings and the position in space of the camera that took the picture, any color filters or special effects if such are present. Do not describe the hairstyle, skin color, or hair color, the parameters of the face or body of the person. Provide the answer as continuous text (without lists, without your own comments, explanations, code, emoticons, special symbols, or words about how you understood my request). If you can not describe something just skip it, without notifying about it, and try do describe all other parameters.";
 
 function populateModelMenu(){
   modelMenu.innerHTML='';
@@ -274,7 +274,7 @@ function createReplaceSlot(prefix,index,val){
     img.src=val; slot.appendChild(img);
     const rm=document.createElement('button');
     rm.className='remove'; rm.textContent='×';
-    rm.addEventListener('click',e=>{e.stopPropagation(); if(prefix==='rp-reference') replaceInputs.reference=null; else replaceInputs.targets[index]=null; renderReplaceMenu(); updateChatState();});
+    rm.addEventListener('click',e=>{e.stopPropagation(); if(prefix==='rp-reference') replaceInputs.reference=null; else replaceInputs.targets[index]=null; renderReplaceMenu(); renderAttachPreview(); updateChatState();});
     slot.appendChild(rm);
   }else{
     const dz=document.createElement('div'); dz.className='drop-zone'; dz.textContent='+'; slot.appendChild(dz);
@@ -334,6 +334,7 @@ function handleFiles(slotName,index,files){
       if(slotName==='rp-reference') replaceInputs.reference=reader.result;
       else replaceInputs.targets[index]=reader.result;
       renderReplaceMenu();
+      renderAttachPreview();
       updateChatState();
     };
     reader.readAsDataURL(file);
@@ -439,6 +440,14 @@ function removeReplaceFile(slot,index){
   renderReplaceMenu();
   renderAttachPreview();
   updateChatState();
+}
+
+function clearAttachments(){
+  currentFiles={};
+  replaceInputs={targets:[null,null],reference:null};
+  renderAttachMenu();
+  renderReplaceMenu();
+  renderAttachPreview();
 }
 
 function updateModelDesc(){
@@ -728,10 +737,13 @@ function renderModeMenu(){
 }
 
 function activateMode(m){
+  const wasReplace=currentModes.includes(REPLACE_MODE);
   if(m===REPLACE_MODE && !['gen4_image','gen4_image_turbo'].includes(currentModel)) selectModel('gen4_image');
   if(m===REPLACE_MODE){
     currentModes=[REPLACE_MODE];
+    clearAttachments();
   }else{
+    if(wasReplace) clearAttachments();
     currentModes=currentModes.filter(x=>x!==REPLACE_MODE);
     if(!currentModes.includes(m)) currentModes.push(m);
   }
@@ -742,6 +754,7 @@ function activateMode(m){
 
 function removeMode(m){
   currentModes=currentModes.filter(x=>x!==m);
+  if(m===REPLACE_MODE) clearAttachments();
   renderModeTags();
   updateModeUI();
   updateChatState();
@@ -898,7 +911,9 @@ async function handleReplaceSend(){
   const apiKey=getRunwayKey();
   const info=MODEL_INFO[modelRunway];
   const basePrompt=sanitizeText(ms.basePrompt||REPLACE_BASE_PROMPT).slice(0,PROMPT_LIMIT);
-  const finalPrompt=`${basePrompt} ${placeholder.content}`.trim();
+  const maxDescLen=PROMPT_LIMIT-basePrompt.length-1;
+  const desc=sanitizeText(placeholder.content).slice(0,Math.max(0,maxDescLen));
+  const finalPrompt=`${basePrompt} ${desc}`.trim();
   const images=[...imgs.targets.filter(Boolean),imgs.reference].map(u=>({uri:u}));
   const payload={model:modelRunway,promptText:finalPrompt,ratio:ratio||info.ratios?.[0],referenceImages:images};
   const credits=info.cost({ratio})||0;
