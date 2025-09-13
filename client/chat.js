@@ -914,7 +914,14 @@ async function handleReplaceSend(){
   const maxDescLen=PROMPT_LIMIT-basePrompt.length-1;
   const desc=sanitizeText(placeholder.content).slice(0,Math.max(0,maxDescLen));
   const finalPrompt=`${basePrompt} ${desc}`.trim();
-  const images=[...imgs.targets.filter(Boolean),imgs.reference].map(u=>({uri:u}));
+  const rawImgs=[...imgs.targets.filter(Boolean),imgs.reference];
+  const runwayUserMsg={role:'user',content:finalPrompt,attachments:rawImgs};
+  await api.addMessage(chatId,runwayUserMsg);
+  if(chatId===activeChat){
+    messagesEl.appendChild(createMessageEl(runwayUserMsg));
+    messagesEl.scrollTop=messagesEl.scrollHeight;
+  }
+  const images=rawImgs.map(u=>({uri:u}));
   const payload={model:modelRunway,promptText:finalPrompt,ratio:ratio||info.ratios?.[0],referenceImages:images};
   const credits=info.cost({ratio})||0;
   const params={model:info.label,mode:REPLACE_MODE,ratio:ratio||info.ratios?.[0],credits};
